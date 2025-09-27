@@ -1,0 +1,96 @@
+#ifndef GAME_HPP
+#define GAME_HPP
+
+#include <bitset>
+#include <cstdint>
+#include <vector>
+
+#define MAX_SIZE 256
+#define EDGE_BITS 4
+
+using namespace std;
+
+typedef bitset<MAX_SIZE> Map;
+
+class Position;
+class State;
+class Game;
+
+// enum Direction
+
+enum Direction {
+    LEFT,
+    RIGHT,
+    UP,
+    DOWN,
+};
+
+const Direction DIRECTIONS[4] = {LEFT, RIGHT, UP, DOWN};
+
+typedef struct DirectionDelta {
+    int8_t dx, dy;
+} DirectionDelta;
+
+const DirectionDelta DIRECTION_DELTAS[4] = {
+    {-1, 0},  // Left
+    {1, 0},   // Right
+    {0, -1},  // Up
+    {0, 1},   // Down
+};
+
+inline const DirectionDelta to_delta(Direction dir) {
+    return DIRECTION_DELTAS[dir];
+}
+
+// class Position
+
+class Position {
+   public:
+    uint8_t x, y;
+
+    Position();
+    Position(uint8_t x, uint8_t y);
+
+    uint16_t to_index();
+
+    Position operator+(Direction dir);
+    Position operator-(Direction dir);
+    bool operator==(const Position& other);
+    bool operator<(const Position& other);
+};
+
+inline void set_pos(Map& bset, Position pos);
+inline void reset_pos(Map& bset, Position pos);
+
+// class State
+
+class State {
+   public:
+    Position player;  // The first grid of connected component
+    Map boxes;
+    vector<Position> available_boxes;
+
+    State();
+    State(Position init_player, Map boxes);
+
+    State push(int box_id, Direction dir);
+    Direction available_directions(int box_id);
+};
+
+// class Game
+
+class Game {
+   public:
+    int width, height;
+    Map map;
+    Map targets;
+
+    Game();
+
+    State load(char* sample_filepath);
+    inline bool pos_valid(Position& pos) {
+        return pos.x < width && pos.y < height;
+    }
+};
+
+#endif  // GAME_HPP
