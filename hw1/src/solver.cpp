@@ -5,16 +5,12 @@
 
 extern Game game;
 
-// Find a path from start to end within the player's connected component (simple
-// BFS)
-vector<Direction> Solver::inner_path(const State& state, Position start,
-                                     Position end) {
+// Find a path from start to end within the player's connected component (simple BFS)
+vector<Direction> Solver::inner_path(const Map &boxes, const Position &start, const Position &end) const {
     vector<Direction> path;
 
-    Map visited =
-        game.map | state.boxes;  // Prevent walking into walls or boxes
-    Direction from[MAX_SIZE] =
-        {};  // NOTE: This could be optimized (i.e. make it global for reuse)
+    Map visited = game.map | boxes;  // Prevent walking into walls or boxes
+    Direction from[MAX_SIZE] = {};   // NOTE: This could be optimized (i.e. make it global for reuse)
 
     queue<Position> q;
     q.push(start);
@@ -48,4 +44,25 @@ vector<Direction> Solver::inner_path(const State& state, Position start,
 
     reverse(path.begin(), path.end());
     return path;
+}
+
+vector<Direction> Solver::expand_solution(const State &initial_state, const vector<Move> &moves) const {
+    vector<Direction> full_path;
+
+    State state = initial_state;
+    for (const auto &[box, dir] : moves) {
+        // Find path from current player position to the pushing position
+        Position push_pos = box - dir;
+        vector<Direction> path_to_push = inner_path(state.boxes, state.player, push_pos);
+        full_path.insert(full_path.end(), path_to_push.begin(), path_to_push.end());
+        full_path.push_back(dir);  // Add the pushing direction
+
+        // Update the state
+        Position new_box = box + dir;
+        state.boxes.reset(box.to_index());
+        state.boxes.set(new_box.to_index());
+        state.player = box;
+    }
+
+    return full_path;
 }

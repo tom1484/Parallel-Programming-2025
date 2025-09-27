@@ -9,7 +9,11 @@ int main(int argc, char* argv[]) {
     State root = game.load(argv[1]);
 
     BFSSolver bfs_solver;
-    // auto path = bfs_solver.inner_path(root, Position(1, 1), Position(3, 2));
+    vector<Direction> solution = bfs_solver.solve(root);
+
+    for (Direction dir : solution) {
+        cout << dir_to_str(dir) << endl;
+    }
 
     return 0;
 }

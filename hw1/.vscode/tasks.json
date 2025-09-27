@@ -2,17 +2,61 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build",
+            "label": "cmake: configure",
             "type": "shell",
-            "command": "make",
+            "command": "cmake",
             "args": [
-                "CXXFLAGS=-std=c++17 -g -O0 -pthread -fopenmp -Iinclude"
+                "-B", "build",
+                "-DCMAKE_BUILD_TYPE=Debug"
             ],
             "options": {
-                "shell": {
-                    "executable": "/bin/bash",
-                    "args": ["-c"]
-                }
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Configure CMake project with Debug build type"
+        },
+        {
+            "label": "cmake: configure-release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-B", "build",
+                "-DCMAKE_BUILD_TYPE=Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "detail": "Configure CMake project with Release build type"
+        },
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build",
+                "--config", "Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
             },
             "group": {
                 "kind": "build",
@@ -27,20 +71,19 @@
                 "clear": false
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Build hw1 with debug symbols"
+            "dependsOn": "cmake: configure",
+            "detail": "Build hw1 with debug symbols using CMake"
         },
         {
             "label": "build-debug",
             "type": "shell",
-            "command": "make",
+            "command": "cmake",
             "args": [
-                "CXXFLAGS=-std=c++17 -g3 -O0 -DDEBUG -pthread -fopenmp -Iinclude -fno-omit-frame-pointer"
+                "--build", "build",
+                "--config", "Debug",
             ],
             "options": {
-                "shell": {
-                    "executable": "/bin/bash",
-                    "args": ["-c"]
-                }
+                "cwd": "${workspaceFolder}"
             },
             "group": "build",
             "presentation": {
@@ -52,18 +95,43 @@
                 "clear": false
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Build hw1 with maximum debug information"
+            "dependsOn": "cmake: configure",
+            "detail": "Build hw1 with maximum debug information using CMake"
+        },
+        {
+            "label": "build-release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build",
+                "--config", "Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": ["$gcc"],
+            "dependsOn": "cmake: configure-release",
+            "detail": "Build hw1 with optimizations using CMake"
         },
         {
             "label": "clean",
             "type": "shell",
-            "command": "make",
-            "args": ["clean"],
+            "command": "cmake",
+            "args": [
+                "--build", "build",
+                "--target", "clean"
+            ],
             "options": {
-                "shell": {
-                    "executable": "/bin/bash",
-                    "args": ["-c"]
-                }
+                "cwd": "${workspaceFolder}"
             },
             "group": "build",
             "presentation": {
@@ -72,7 +140,30 @@
                 "focus": false,
                 "panel": "shared"
             },
-            "detail": "Clean build artifacts"
+            "problemMatcher": [],
+            "detail": "Clean build artifacts using CMake"
+        },
+        {
+            "label": "rebuild",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build",
+                "--clean-first"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"],
+            "dependsOn": "cmake: configure",
+            "detail": "Clean and rebuild hw1 using CMake"
         }
     ]
 }

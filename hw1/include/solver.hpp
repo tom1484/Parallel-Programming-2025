@@ -5,13 +5,17 @@
 
 #include "game.hpp"
 
+typedef pair<Position, Direction> Move;  // (pushed box index, direction)
+
 class Solver {
+   protected:
+    vector<Direction> inner_path(const Map &boxes, const Position &start, const Position &end) const;
+    vector<Direction> expand_solution(const State &initial_state, const vector<Move> &moves) const;
+
    public:
     Solver() {}
 
-    vector<Direction> inner_path(const State& state, Position start,
-                                 Position end);
-    virtual vector<Direction> solve(const State& initial_state) = 0;
+    virtual vector<Direction> solve(const State &initial_state) = 0;
 };
 
 #endif  // SOLVER_HPP

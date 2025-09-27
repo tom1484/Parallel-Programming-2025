@@ -19,13 +19,13 @@ class Game;
 // enum Direction
 
 enum Direction {
-    LEFT,
-    RIGHT,
-    UP,
-    DOWN,
+    LEFT = 0,
+    RIGHT = 1,
+    UP = 2,
+    DOWN = 3,
 };
 
-const Direction DIRECTIONS[4] = {LEFT, RIGHT, UP, DOWN};
+const Direction DIRECTIONS[4] = {Direction::LEFT, Direction::RIGHT, Direction::UP, Direction::DOWN};
 
 typedef struct DirectionDelta {
     int8_t dx, dy;
@@ -38,8 +38,23 @@ const DirectionDelta DIRECTION_DELTAS[4] = {
     {0, 1},   // Down
 };
 
-inline const DirectionDelta to_delta(Direction dir) {
-    return DIRECTION_DELTAS[dir];
+inline Direction dir_inv(const Direction& dir) { return static_cast<Direction>(dir ^ 1); }
+
+inline DirectionDelta dir_to_delta(const Direction& dir) { return DIRECTION_DELTAS[dir]; }
+
+inline const char* dir_to_str(const Direction& dir) {
+    switch (dir) {
+        case Direction::LEFT:
+            return "LEFT";
+        case Direction::RIGHT:
+            return "RIGHT";
+        case Direction::UP:
+            return "UP";
+        case Direction::DOWN:
+            return "DOWN";
+        default:
+            return "UNKNOWN";
+    }
 }
 
 // class Position
@@ -51,30 +66,37 @@ class Position {
     Position();
     Position(uint8_t x, uint8_t y);
 
-    uint16_t to_index();
+    uint16_t to_index() const;
+    bool is_dead_pos(Map block, bool advanced = false) const;
 
-    Position operator+(Direction dir);
-    Position operator-(Direction dir);
-    bool operator==(const Position& other);
-    bool operator<(const Position& other);
+    Position operator+(const Direction& dir) const;
+    Position operator-(const Direction& dir) const;
+    bool operator==(const Position& other) const;
+    bool operator<(const Position& other) const;
 };
 
-inline void set_pos(Map& bset, Position pos);
-inline void reset_pos(Map& bset, Position pos);
+inline void set_pos(Map& bset, const Position &pos);
+inline void reset_pos(Map& bset, const Position &pos);
 
 // class State
 
 class State {
    public:
     Position player;  // The first grid of connected component
+    Map reachable;
     Map boxes;
     vector<Position> available_boxes;
+
+    bool normalized;
+    bool dead;
 
     State();
     State(Position init_player, Map boxes);
 
-    State push(int box_id, Direction dir);
-    Direction available_directions(int box_id);
+    State push(int box_id, const Direction& dir) const;
+    vector<pair<Position, Direction>> available_pushes(int box_id) const;
+
+    void normalize();
 };
 
 // class Game
@@ -87,10 +109,8 @@ class Game {
 
     Game();
 
-    State load(char* sample_filepath);
-    inline bool pos_valid(Position& pos) {
-        return pos.x < width && pos.y < height;
-    }
+    State load(const char* sample_filepath);
+    inline bool pos_valid(const Position& pos) const { return pos.x < width && pos.y < height; }
 };
 
 #endif  // GAME_HPP
