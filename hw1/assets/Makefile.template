@@ -1,0 +1,24 @@
+# Makefile template for homework submission
+# This template will be filled by prepare_submission.py script
+
+CXX = g++
+TARGET = hw1
+SOURCE = hw1.cpp
+
+# Compiler flags (to be filled by script)
+CXXFLAGS = {cxx_flags}
+DEFINES = {cxx_defines}
+LDFLAGS = {link_flags}
+
+# Default target
+all: $(TARGET)
+
+# Build target
+$(TARGET): $(SOURCE)
+	$(CXX) $(CXXFLAGS) $(DEFINES) -o $(TARGET) $(SOURCE) $(LDFLAGS)
+
+# Clean build artifacts
+clean:
+	rm -f $(TARGET)
+
+.PHONY: all clean
