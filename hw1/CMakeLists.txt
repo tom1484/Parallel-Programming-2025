@@ -42,3 +42,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(hw1
                          PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O3>)
 endif()
+
+# Turn on DEBUG flag when building Debug
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_definitions(hw1 PRIVATE DEBUG)
+  target_compile_options(hw1
+                         PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-g -Wall -Wextra -Wpedantic>)
+endif()

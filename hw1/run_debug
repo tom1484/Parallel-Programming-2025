@@ -1,0 +1,18 @@
+#!/bin/env bash
+sample_id="$1"
+cmake --build build/Debug
+echo ""
+
+start_time=$(date +%s%N)
+./build/Debug/hw1 samples/"$sample_id".txt > answer.txt
+end_time=$(date +%s%N)
+elapsed_time=$(( (end_time - start_time) / 1000 )) # Convert nanoseconds to microseconds
+echo "Computation time: ${elapsed_time} microseconds"
+echo ""
+
+echo "Output:"
+cat answer.txt
+echo ""
+
+echo "Validation:"
+python3 tools/validate.py samples/"$sample_id".txt answer.txt

@@ -12,13 +12,10 @@
             "cwd": "${workspaceFolder}",
             "program": "${workspaceFolder}/build/hw1",
             "args": [
-                "${workspaceFolder}/samples/02.txt"
+                "${workspaceFolder}/samples/06.txt"
             ],
             "stopOnEntry": false,
             "preLaunchTask": "build-debug",
-            // "sourceMap": {
-            //     "/proc/self/cwd": "${workspaceFolder}"
-            // },
             "initCommands": [
                 "settings set target.inline-breakpoint-strategy always"
             ]

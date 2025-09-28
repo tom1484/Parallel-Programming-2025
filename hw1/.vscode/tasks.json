@@ -2,11 +2,11 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "cmake: configure",
+            "label": "cmake: configure-debug",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-B", "build",
+                "-B", "build/Debug",
                 "-DCMAKE_BUILD_TYPE=Debug"
             ],
             "options": {
@@ -29,7 +29,7 @@
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-B", "build",
+                "-B", "build/Release",
                 "-DCMAKE_BUILD_TYPE=Release"
             ],
             "options": {
@@ -48,12 +48,11 @@
             "detail": "Configure CMake project with Release build type"
         },
         {
-            "label": "build",
+            "label": "build-debug",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "--build", "build",
-                "--config", "Debug"
+                "--build", "build/Debug"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -71,40 +70,15 @@
                 "clear": false
             },
             "problemMatcher": ["$gcc"],
-            "dependsOn": "cmake: configure",
+            "dependsOn": "cmake: configure-debug",
             "detail": "Build hw1 with debug symbols using CMake"
-        },
-        {
-            "label": "build-debug",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build", "build",
-                "--config", "Debug",
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": true,
-                "clear": false
-            },
-            "problemMatcher": ["$gcc"],
-            "dependsOn": "cmake: configure",
-            "detail": "Build hw1 with maximum debug information using CMake"
         },
         {
             "label": "build-release",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "--build", "build",
-                "--config", "Release"
+                "--build", "build/Release"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -123,11 +97,11 @@
             "detail": "Build hw1 with optimizations using CMake"
         },
         {
-            "label": "clean",
+            "label": "clean-debug",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "--build", "build",
+                "--build", "build/Debug",
                 "--target", "clean"
             ],
             "options": {
@@ -141,14 +115,35 @@
                 "panel": "shared"
             },
             "problemMatcher": [],
-            "detail": "Clean build artifacts using CMake"
+            "detail": "Clean Debug build artifacts using CMake"
         },
         {
-            "label": "rebuild",
+            "label": "clean-release",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "--build", "build",
+                "--build", "build/Release",
+                "--target", "clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [],
+            "detail": "Clean Release build artifacts using CMake"
+        },
+        {
+            "label": "rebuild-debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build/Debug",
                 "--clean-first"
             ],
             "options": {
@@ -162,8 +157,30 @@
                 "panel": "shared"
             },
             "problemMatcher": ["$gcc"],
-            "dependsOn": "cmake: configure",
-            "detail": "Clean and rebuild hw1 using CMake"
+            "dependsOn": "cmake: configure-debug",
+            "detail": "Clean and rebuild hw1 Debug using CMake"
+        },
+        {
+            "label": "rebuild-release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build/Release",
+                "--clean-first"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"],
+            "dependsOn": "cmake: configure-release",
+            "detail": "Clean and rebuild hw1 Release using CMake"
         }
     ]
 }

@@ -10,3 +10,6 @@ Thumbs.db
 *.log
 *.swp
 *~
+
+# Project specific ignores
+answer.txt

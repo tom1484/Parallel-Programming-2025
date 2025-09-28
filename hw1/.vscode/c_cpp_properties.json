@@ -6,17 +6,14 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include"
             ],
-            "defines": [],
             "compilerPath": "/usr/bin/g++",
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "linux-gcc-x64",
-            "compilerArgs": [
-                "-O3",
-                "-pthread",
-                "-fopenmp"
-            ],
-            "configurationProvider": "ms-vscode.makefile-tools"
+            "configurationProvider": "ms-vscode.makefile-tools",
+            "compileCommands": [
+                "${workspaceFolder}/build/Debug/compile_commands.json"
+            ]
         }
     ],
     "version": 4
