@@ -50,5 +50,11 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "unordered_set": "cpp"
+    },
+    "C_Cpp.files.exclude": {
+        "**/.vscode": true,
+        "**/.vs": true,
+        "**/build": true,
+        "**/submission": true,
     }
 }
