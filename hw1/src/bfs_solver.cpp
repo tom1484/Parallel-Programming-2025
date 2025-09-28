@@ -38,8 +38,8 @@ vector<Direction> BFSSolver::solve(const State& initial_state) {
         // if (normalize_and_check_invalid(curr_state, visited)) continue;
 
         Move prev_move = history.empty() ? Move{Position(), Direction::LEFT} : history.back();
-        for (size_t box_id = 0; box_id < curr_state.available_boxes.size(); ++box_id) {
-            Position box = curr_state.available_boxes[box_id];
+        for (size_t box_id = 0; box_id < curr_state.reachable_boxes.size(); ++box_id) {
+            Position box = curr_state.reachable_boxes[box_id];
             vector<pair<Position, Direction>> pushes = curr_state.available_pushes(box_id);
 
             for (const auto& [player_pos, dir] : pushes) {

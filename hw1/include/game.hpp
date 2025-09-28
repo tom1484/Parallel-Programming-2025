@@ -6,6 +6,7 @@
 #include <vector>
 
 #define MAX_SIZE 256
+// WARNING: Not sure if max width/height don't exceed 16
 #define EDGE_BITS 4
 
 using namespace std;
@@ -85,7 +86,7 @@ class State {
     Position player;  // The first grid of connected component
     Map reachable;
     Map boxes;
-    vector<Position> available_boxes;
+    vector<Position> reachable_boxes;
 
     bool normalized;
     bool dead;
@@ -105,7 +106,7 @@ class State {
 class Game {
    public:
     size_t width, height;
-    Map map;
+    Map player_map, box_map;
     Map targets;
 
     Game();

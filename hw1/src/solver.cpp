@@ -9,7 +9,7 @@ extern Game game;
 vector<Direction> Solver::inner_path(const Map &boxes, const Position &start, const Position &end) const {
     vector<Direction> path;
 
-    Map visited = game.map | boxes;  // Prevent walking into walls or boxes
+    Map visited = game.player_map | boxes;  // Prevent walking into walls or boxes
     Direction from[MAX_SIZE] = {};   // NOTE: This could be optimized (i.e. make it global for reuse)
 
     queue<Position> q;

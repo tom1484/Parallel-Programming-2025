@@ -18,7 +18,8 @@ Position::Position() : x(0), y(0) {}
 
 Position::Position(uint8_t x, uint8_t y) : x(x), y(y) {}
 
-uint16_t Position::to_index() const { return (y << EDGE_BITS) + x; }
+// NOTE: If max width/height don't exceed 16, we can use EDGE_BITS to optimize
+uint16_t Position::to_index() const { return (y * game.width) + x; }
 
 // WARNING: Not tested
 bool Position::is_dead_pos(Map block, bool advanced) const {
@@ -95,7 +96,7 @@ State::State(Position init_player, Map boxes) : player(init_player), boxes(boxes
 
 // Move the box and update the current connected component
 State State::push(size_t box_id, const Direction& dir) const {
-    const Position& box = available_boxes[box_id];
+    const Position& box = reachable_boxes[box_id];
     Position new_box = box + dir;
     Map new_boxes = boxes;
 
@@ -108,16 +109,16 @@ State State::push(size_t box_id, const Direction& dir) const {
 
 // NOTE: The player position may be removed from the returned values
 vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
-    Map block = game.map | boxes;
+    Map box_block = game.box_map | boxes;
     vector<pair<Position, Direction>> pushes;
 
     for (Direction dir : DIRECTIONS) {
-        const Position& box = available_boxes[box_id];
+        const Position& box = reachable_boxes[box_id];
         Position player_pos = box - dir;
         Position new_box = box + dir;
 
         if (!game.pos_valid(new_box) || !game.pos_valid(player_pos)) continue;
-        if (!reachable[player_pos.to_index()] || block[new_box.to_index()]) continue;
+        if (!reachable[player_pos.to_index()] || box_block[new_box.to_index()]) continue;
 
         pushes.push_back({player_pos, dir});
     }
@@ -126,7 +127,7 @@ vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
 }
 
 void State::normalize() {
-    Map block = game.map | boxes;
+    Map block = game.player_map | boxes;
     Map visited;
 
     queue<Position> q;
@@ -157,7 +158,7 @@ void State::normalize() {
                         dead = true;
                         return;
                     }
-                    available_boxes.push_back(next);  // A reachable box
+                    reachable_boxes.push_back(next);  // A reachable box
                     visited.set(idx);
                 }
             }
@@ -171,11 +172,11 @@ void State::normalize() {
 uint64_t State::hash() const {
     // Combine player position into a single value
     uint64_t player_hash = static_cast<uint64_t>(player.to_index());
-    
+
     // Hash the boxes map by converting to string and using std::hash
     string boxes_str = boxes.to_string();
     uint64_t boxes_hash = std::hash<string>{}(boxes_str);
-    
+
     // Combine the two hashes using bitwise operations
     // Use different bit positions to avoid collisions
     return (player_hash << 16) ^ boxes_hash;
@@ -199,7 +200,8 @@ State Game::load(const char* sample_filepath) {
     Map boxes;
     boxes.reset();
 
-    map.reset();
+    player_map.reset();
+    box_map.reset();
     targets.reset();
 
     Position pos;
@@ -209,19 +211,24 @@ State Game::load(const char* sample_filepath) {
 
         for (pos.x = 0; pos.x < width; pos.x++) {
             char cell = row[pos.x];
-            if (cell == '#')
-                map.set(pos.to_index());
-            else if (cell == '.')
-                targets.set(pos.to_index());
-            else if (cell == 'x')
-                boxes.set(pos.to_index());
-            else if (cell == 'X') {
-                boxes.set(pos.to_index());
-                targets.set(pos.to_index());
-            }
-            else if (cell == 'o')
+            if (cell == '#') {
+                player_map.set(pos.to_index());
+                box_map.set(pos.to_index());
+            } else if (cell == '@') {  // Fragile tile: only boxes will be blocked
+                box_map.set(pos.to_index());
+            } else if (cell == '!') {  // Player stepping on a fragile tile
                 player = pos;
-            else if (cell == 'O') {
+                box_map.set(pos.to_index());
+            } else if (cell == '.') {  // Target position
+                targets.set(pos.to_index());
+            } else if (cell == 'x') {  // Box
+                boxes.set(pos.to_index());
+            } else if (cell == 'X') {  // Box on target
+                boxes.set(pos.to_index());
+                targets.set(pos.to_index());
+            } else if (cell == 'o') {  // Player
+                player = pos;
+            } else if (cell == 'O') {  // Player on target
                 player = pos;
                 targets.set(pos.to_index());
             }
