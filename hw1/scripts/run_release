@@ -3,8 +3,8 @@ sample_id="$1"
 cmake --build build/Release
 echo ""
 
-start_time=$(date +%s%N)
 echo "Running..."
+start_time=$(date +%s%N)
 ./build/Release/hw1 assets/samples/"$sample_id".txt > assets/answer.txt
 end_time=$(date +%s%N)
 elapsed_time=$(( (end_time - start_time) / 1000 )) # Convert nanoseconds to microseconds

@@ -1,0 +1,15 @@
+#!/bin/env bash
+sample_id="$1"
+cmake --build build/Debug
+echo ""
+
+echo "Running..."
+srun -A ACD114118 -n1 -c1 ./build/Debug/hw1 ./assets/samples/"$sample_id".txt > ./assets/answer.txt
+echo ""
+
+echo "Output:"
+cat assets/answer.txt
+echo ""
+
+echo "Validation:"
+python3 scripts/validate.py assets/samples/"$sample_id".txt assets/answer.txt
