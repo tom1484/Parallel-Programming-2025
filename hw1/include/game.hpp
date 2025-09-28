@@ -42,18 +42,18 @@ inline Direction dir_inv(const Direction& dir) { return static_cast<Direction>(d
 
 inline DirectionDelta dir_to_delta(const Direction& dir) { return DIRECTION_DELTAS[dir]; }
 
-inline const char* dir_to_str(const Direction& dir) {
+inline char dir_to_str(const Direction& dir) {
     switch (dir) {
         case Direction::LEFT:
-            return "LEFT";
+            return 'A';
         case Direction::RIGHT:
-            return "RIGHT";
+            return 'D';
         case Direction::UP:
-            return "UP";
+            return 'W';
         case Direction::DOWN:
-            return "DOWN";
+            return 'S';
         default:
-            return "UNKNOWN";
+            return 'X';
     }
 }
 
@@ -93,17 +93,18 @@ class State {
     State();
     State(Position init_player, Map boxes);
 
-    State push(int box_id, const Direction& dir) const;
-    vector<pair<Position, Direction>> available_pushes(int box_id) const;
+    State push(size_t box_id, const Direction& dir) const;
+    vector<pair<Position, Direction>> available_pushes(size_t box_id) const;
 
     void normalize();
+    uint64_t hash() const;
 };
 
 // class Game
 
 class Game {
    public:
-    int width, height;
+    size_t width, height;
     Map map;
     Map targets;
 

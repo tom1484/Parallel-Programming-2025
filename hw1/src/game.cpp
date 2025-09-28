@@ -1,6 +1,7 @@
 #include "game.hpp"
 
 #include <fstream>
+#include <functional>
 #include <queue>
 #include <string>
 #include <vector>
@@ -45,11 +46,11 @@ bool Position::is_dead_pos(Map block, bool advanced) const {
             Position wall_pivot = *this + comb[0];
             if (!block[wall_pivot.to_index()]) continue;
 
+            bool escaped = false;
             for (int i = 1; i < 3; i++) {
                 Direction dir = comb[i];
-                Position self = *this + dir;
-                Position wall = wall_pivot + dir;
-                bool escaped = false;
+                Position self = *this;
+                Position wall = wall_pivot;
                 do {
                     if ((!block[wall.to_index()] && !block[self.to_index()]) || game.targets[self.to_index()]) {
                         escaped = true;
@@ -59,8 +60,9 @@ bool Position::is_dead_pos(Map block, bool advanced) const {
                     wall = wall + dir;
                 } while (game.pos_valid(self) && game.pos_valid(wall));
 
-                if (!escaped) return true;
+                if (escaped) break;
             }
+            if (!escaped) return true;
         }
     }
 
@@ -92,7 +94,7 @@ State::State() : player(0, 0), boxes(0), normalized(false), dead(false) {}
 State::State(Position init_player, Map boxes) : player(init_player), boxes(boxes), normalized(false), dead(false) {}
 
 // Move the box and update the current connected component
-State State::push(int box_id, const Direction& dir) const {
+State State::push(size_t box_id, const Direction& dir) const {
     const Position& box = available_boxes[box_id];
     Position new_box = box + dir;
     Map new_boxes = boxes;
@@ -105,7 +107,7 @@ State State::push(int box_id, const Direction& dir) const {
 }
 
 // NOTE: The player position may be removed from the returned values
-vector<pair<Position, Direction>> State::available_pushes(int box_id) const {
+vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
     Map block = game.map | boxes;
     vector<pair<Position, Direction>> pushes;
 
@@ -150,7 +152,7 @@ void State::normalize() {
                 if (!block[idx])  // Empty space
                     q.push(next);
                 if (boxes[idx]) {
-                    if (next.is_dead_pos(block)) {
+                    if (next.is_dead_pos(block, true)) {
                         normalized = false;
                         dead = true;
                         return;
@@ -164,6 +166,19 @@ void State::normalize() {
 
     normalized = true;
     dead = false;
+}
+
+uint64_t State::hash() const {
+    // Combine player position into a single value
+    uint64_t player_hash = static_cast<uint64_t>(player.to_index());
+    
+    // Hash the boxes map by converting to string and using std::hash
+    string boxes_str = boxes.to_string();
+    uint64_t boxes_hash = std::hash<string>{}(boxes_str);
+    
+    // Combine the two hashes using bitwise operations
+    // Use different bit positions to avoid collisions
+    return (player_hash << 16) ^ boxes_hash;
 }
 
 // class Game implementation
