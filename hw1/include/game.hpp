@@ -68,7 +68,9 @@ class Position {
     Position(uint8_t x, uint8_t y);
 
     uint16_t to_index() const;
-    bool is_dead_pos(Map boxes, bool advanced = false) const;
+    bool is_dead_corner(const Map& boxes) const;
+    bool is_dead_wall(const Map& boxes) const;
+    bool is_dead_pos(const Map& boxes, bool advanced = false) const;
 
     Position operator+(const Direction& dir) const;
     Position operator-(const Direction& dir) const;
@@ -76,8 +78,8 @@ class Position {
     bool operator<(const Position& other) const;
 };
 
-inline void set_pos(Map& bset, const Position &pos);
-inline void reset_pos(Map& bset, const Position &pos);
+inline void set_pos(Map& bset, const Position& pos);
+inline void reset_pos(Map& bset, const Position& pos);
 
 // class State
 
@@ -101,7 +103,7 @@ class State {
 
     State push(size_t box_id, const Direction& dir) const;
     vector<Direction> available_pushes(size_t box_id) const;
-    
+
     State pull(size_t box_id, const Direction& dir) const;
     vector<Direction> available_pulls(size_t box_id) const;
 
@@ -121,11 +123,12 @@ class Game {
     size_t width, height;
     Map player_map, box_map;
     Map targets;
-    Map initial_boxes; // For bi-directional BFS
+    Map initial_boxes;  // For bi-directional BFS
 
     Game();
 
     State load(const char* sample_filepath);
+    void mark_virtual_fragile_tiles();
     inline bool pos_valid(const Position& pos) const { return pos.x < width && pos.y < height; }
 };
 

@@ -8,6 +8,7 @@ extern Game game;
 
 int main(int /*argc*/, char* argv[]) {
     State root = game.load(argv[1]);
+    game.mark_virtual_fragile_tiles();
 
     // BFSSolver solver;
     BiBFSSolver solver;

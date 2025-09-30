@@ -21,21 +21,13 @@ Position::Position(uint8_t x, uint8_t y) : x(x), y(y) {}
 // NOTE: If max width/height don't exceed 16, we can use EDGE_BITS to optimize
 uint16_t Position::to_index() const { return (y * game.width) + x; }
 
-bool Position::is_dead_pos(Map boxes, bool advanced) const {
+bool Position::is_dead_corner(const Map& boxes) const {
     static const Direction corner_dirs[4][2] = {
         {Direction::LEFT, Direction::UP},
         {Direction::UP, Direction::RIGHT},
         {Direction::RIGHT, Direction::DOWN},
         {Direction::DOWN, Direction::LEFT},
     };
-    static const Direction wall_dirs[4][3] = {
-        {Direction::LEFT, Direction::UP, Direction::DOWN},
-        {Direction::UP, Direction::LEFT, Direction::RIGHT},
-        {Direction::RIGHT, Direction::UP, Direction::DOWN},
-        {Direction::DOWN, Direction::LEFT, Direction::RIGHT},
-    };
-
-    if (game.targets[this->to_index()]) return false;
 
     for (const Direction* comb : corner_dirs) {
         Position neighbor0 = *this + comb[0];
@@ -45,39 +37,57 @@ bool Position::is_dead_pos(Map boxes, bool advanced) const {
         if (boxes[neighbor0.to_index()] && boxes[neighbor1.to_index()] && game.player_map[corner.to_index()])
             return true;
     }
+    
+    return false;
+}
 
-    if (advanced) {
-        for (const Direction* comb : wall_dirs) {
-            Position wall_pivot = *this + comb[0];
-            if (!game.box_map[wall_pivot.to_index()]) continue;
+bool Position::is_dead_wall(const Map& boxes) const {
+    static const Direction wall_dirs[4][3] = {
+        {Direction::LEFT, Direction::UP, Direction::DOWN},
+        {Direction::UP, Direction::LEFT, Direction::RIGHT},
+        {Direction::RIGHT, Direction::UP, Direction::DOWN},
+        {Direction::DOWN, Direction::LEFT, Direction::RIGHT},
+    };
 
-            bool escaped = false;
-            for (int i = 1; i < 3; i++) {
-                Direction dir = comb[i];
-                Position self = *this;
-                Position wall = wall_pivot;
-                do {
-                    // Case 1: # x   #
-                    //          ####
-                    // Case 2: # x   #
-                    //          ####@
-                    // Case 3: # x . #
-                    //          #####
-                    if (!game.box_map[wall.to_index()] || !game.player_map[wall.to_index()] ||
-                        game.targets[self.to_index()]) {
-                        escaped = true;
-                        break;
-                    }
-                    self = self + dir;
-                    wall = wall + dir;
-                } while (game.pos_valid(self) && game.pos_valid(wall) && !game.box_map[self.to_index()]);
+    for (const Direction* comb : wall_dirs) {
+        Position wall_pivot = *this + comb[0];
+        if (!game.box_map[wall_pivot.to_index()]) continue;
 
-                if (escaped) break;
-            }
-            if (!escaped) return true;
+        bool escaped = false;
+        for (int i = 1; i < 3; i++) {
+            Direction dir = comb[i];
+            Position self = *this;
+            Position wall = wall_pivot;
+            do {
+                // Case 1: # x   #
+                //          ####
+                // Case 2: # x   #
+                //          ####@
+                // Case 3: # x . #
+                //          #####
+                if (!game.box_map[wall.to_index()] || !game.player_map[wall.to_index()] ||
+                    game.targets[self.to_index()]) {
+                    escaped = true;
+                    break;
+                }
+                self = self + dir;
+                wall = wall + dir;
+            } while (game.pos_valid(self) && game.pos_valid(wall) && !game.box_map[self.to_index()]);
+
+            if (escaped) break;
         }
+        if (!escaped) return true;
     }
 
+    return false;
+}
+
+bool Position::is_dead_pos(const Map& boxes, bool advanced) const {
+    if (game.targets[this->to_index()]) return false;
+
+    if (is_dead_corner(boxes)) return true;
+    if (advanced && is_dead_wall(boxes)) return true;
+    
     return false;
 }
 
@@ -230,7 +240,7 @@ void State::normalize(StateMode mode) {
                     q.push(next);
                 if (boxes[idx]) {
                     // The dead case of pulling is nearly impossible, so we only check the dead case of pushing here
-                    if (mode == StateMode::PUSH && next.is_dead_pos(player_block, true)) {
+                    if (mode == StateMode::PUSH && next.is_dead_pos(player_block, false)) {
                         normalized = false;
                         dead = true;
                         return;
@@ -264,6 +274,8 @@ uint64_t State::hash() const {
 }
 
 // class Game implementation
+
+Game::Game() {}
 
 State Game::load(const char* sample_filepath) {
     ifstream file(sample_filepath);
@@ -318,6 +330,17 @@ State Game::load(const char* sample_filepath) {
     return State(player, initial_boxes);
 }
 
-// TODO: Add fragile tiles against dead wall
+void Game::mark_virtual_fragile_tiles() {
+    Map new_box_map = box_map;
 
-Game::Game() {}
+    for (size_t y = 0; y < height; ++y) {
+        for (size_t x = 0; x < width; ++x) {
+            Position pos(x, y);
+            uint16_t idx = pos.to_index();
+            if (player_map[idx] || box_map[idx]) continue;
+            if (pos.is_dead_wall(box_map)) new_box_map.set(idx);
+        }
+    }
+
+    box_map = new_box_map;
+}
