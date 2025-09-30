@@ -21,8 +21,7 @@ Position::Position(uint8_t x, uint8_t y) : x(x), y(y) {}
 // NOTE: If max width/height don't exceed 16, we can use EDGE_BITS to optimize
 uint16_t Position::to_index() const { return (y * game.width) + x; }
 
-// WARNING: Not tested
-bool Position::is_dead_pos(Map block, bool advanced) const {
+bool Position::is_dead_pos(Map boxes, bool advanced) const {
     static const Direction corner_dirs[4][2] = {
         {Direction::LEFT, Direction::UP},
         {Direction::UP, Direction::RIGHT},
@@ -36,16 +35,21 @@ bool Position::is_dead_pos(Map block, bool advanced) const {
         {Direction::DOWN, Direction::LEFT, Direction::RIGHT},
     };
 
+    if (game.targets[this->to_index()]) return false;
+
     for (const Direction* comb : corner_dirs) {
         Position neighbor0 = *this + comb[0];
         Position neighbor1 = *this + comb[1];
-        if (block[neighbor0.to_index()] && block[neighbor1.to_index()] && !game.targets[this->to_index()]) return true;
+        Position corner = *this + comb[0] + comb[1];
+        if (game.player_map[neighbor0.to_index()] && game.player_map[neighbor1.to_index()]) return true;
+        if (boxes[neighbor0.to_index()] && boxes[neighbor1.to_index()] && game.player_map[corner.to_index()])
+            return true;
     }
 
     if (advanced) {
         for (const Direction* comb : wall_dirs) {
             Position wall_pivot = *this + comb[0];
-            if (!block[wall_pivot.to_index()]) continue;
+            if (!game.box_map[wall_pivot.to_index()]) continue;
 
             bool escaped = false;
             for (int i = 1; i < 3; i++) {
@@ -53,13 +57,19 @@ bool Position::is_dead_pos(Map block, bool advanced) const {
                 Position self = *this;
                 Position wall = wall_pivot;
                 do {
-                    if ((!block[wall.to_index()] && !block[self.to_index()]) || game.targets[self.to_index()]) {
+                    // Case 1: # x   #
+                    //          ####
+                    // Case 2: # x   #
+                    //          ####@
+                    // Case 3: # x . #
+                    //          #####
+                    if (!game.box_map[wall.to_index()] || !game.player_map[wall.to_index()] || game.targets[self.to_index()]) {
                         escaped = true;
                         break;
                     }
                     self = self + dir;
                     wall = wall + dir;
-                } while (game.pos_valid(self) && game.pos_valid(wall));
+                } while (game.pos_valid(self) && game.pos_valid(wall) && !game.box_map[self.to_index()]);
 
                 if (escaped) break;
             }
@@ -127,7 +137,7 @@ vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
 }
 
 void State::normalize() {
-    Map block = game.player_map | boxes;
+    Map player_block = game.player_map | boxes;
     Map visited;
 
     queue<Position> q;
@@ -150,10 +160,10 @@ void State::normalize() {
 
             uint16_t idx = next.to_index();
             if (!visited[idx]) {
-                if (!block[idx])  // Empty space
+                if (!player_block[idx])  // Empty space
                     q.push(next);
                 if (boxes[idx]) {
-                    if (next.is_dead_pos(block, true)) {
+                    if (next.is_dead_pos(player_block, true)) {
                         normalized = false;
                         dead = true;
                         return;

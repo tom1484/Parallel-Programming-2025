@@ -68,7 +68,7 @@ class Position {
     Position(uint8_t x, uint8_t y);
 
     uint16_t to_index() const;
-    bool is_dead_pos(Map block, bool advanced = false) const;
+    bool is_dead_pos(Map boxes, bool advanced = false) const;
 
     Position operator+(const Direction& dir) const;
     Position operator-(const Direction& dir) const;
