@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <queue>
+#include <unordered_set>
 
 using namespace std;
 
@@ -19,12 +20,14 @@ bool BFSSolver::normalize_and_check_invalid(State& state, unordered_set<uint64_t
 }
 
 vector<Direction> BFSSolver::solve(const State& initial_state) {
+    if (game.targets == initial_state.boxes) return {};  // Already solved
+
     // State, (pushed box index, direction)
     queue<pair<State, vector<Move>>> q;
     unordered_set<uint64_t> visited;
 
-    bool solved = false;
-    vector<Move> solution;
+    solved = false;
+    solution.clear();
 
     State curr_state = initial_state;
     curr_state.normalize();
@@ -37,12 +40,12 @@ vector<Direction> BFSSolver::solve(const State& initial_state) {
         // NOTE: This is tested to be slower for now
         // if (normalize_and_check_invalid(curr_state, visited)) continue;
 
-        Move prev_move = history.empty() ? Move{Position(), Direction::LEFT} : history.back();
+        Move prev_move = history.empty() ? Move{} : history.back();
         for (size_t box_id = 0; box_id < curr_state.reachable_boxes.size(); ++box_id) {
             Position box = curr_state.reachable_boxes[box_id];
-            vector<pair<Position, Direction>> pushes = curr_state.available_pushes(box_id);
+            vector<Direction> pushes = curr_state.available_pushes(box_id);
 
-            for (const auto& [player_pos, dir] : pushes) {
+            for (const Direction& dir : pushes) {
                 if (box == prev_move.first && dir == dir_inv(prev_move.second)) continue;  // Avoid pushing back
 
                 vector<Move> new_history = history;
@@ -73,5 +76,5 @@ vector<Direction> BFSSolver::solve(const State& initial_state) {
     // for (const auto& [box, dir] : solution) {
     //     cout << "Push box " << (int)box.x << ", " << (int)box.y << " to direction " << dir << endl;
     // }
-    return expand_solution(initial_state, solution);
+    return expand_solution(initial_state);
 }

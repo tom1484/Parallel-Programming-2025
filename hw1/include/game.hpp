@@ -81,6 +81,11 @@ inline void reset_pos(Map& bset, const Position &pos);
 
 // class State
 
+enum StateMode {
+    PUSH = 0,
+    PULL = 1,
+};
+
 class State {
    public:
     Position player;  // The first grid of connected component
@@ -95,9 +100,12 @@ class State {
     State(Position init_player, Map boxes);
 
     State push(size_t box_id, const Direction& dir) const;
-    vector<pair<Position, Direction>> available_pushes(size_t box_id) const;
+    vector<Direction> available_pushes(size_t box_id) const;
+    
+    State pull(size_t box_id, const Direction& dir) const;
+    vector<Direction> available_pulls(size_t box_id) const;
 
-    void normalize();
+    void normalize(StateMode mode = StateMode::PUSH);
     uint64_t hash() const;
 
 #ifdef DEBUG
@@ -113,6 +121,7 @@ class Game {
     size_t width, height;
     Map player_map, box_map;
     Map targets;
+    Map initial_boxes; // For bi-directional BFS
 
     Game();
 

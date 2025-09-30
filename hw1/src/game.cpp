@@ -63,7 +63,8 @@ bool Position::is_dead_pos(Map boxes, bool advanced) const {
                     //          ####@
                     // Case 3: # x . #
                     //          #####
-                    if (!game.box_map[wall.to_index()] || !game.player_map[wall.to_index()] || game.targets[self.to_index()]) {
+                    if (!game.box_map[wall.to_index()] || !game.player_map[wall.to_index()] ||
+                        game.targets[self.to_index()]) {
                         escaped = true;
                         break;
                     }
@@ -150,12 +151,11 @@ State State::push(size_t box_id, const Direction& dir) const {
     return State(new_player, new_boxes);
 }
 
-// NOTE: The player position may be removed from the returned values
-vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
+vector<Direction> State::available_pushes(size_t box_id) const {
     Map box_block = game.box_map | boxes;
-    vector<pair<Position, Direction>> pushes;
+    vector<Direction> pushes;
 
-    for (Direction dir : DIRECTIONS) {
+    for (Direction dir : DIRECTIONS) {  // The push direction
         const Position& box = reachable_boxes[box_id];
         Position player_pos = box - dir;
         Position new_box = box + dir;
@@ -163,13 +163,46 @@ vector<pair<Position, Direction>> State::available_pushes(size_t box_id) const {
         if (!game.pos_valid(new_box) || !game.pos_valid(player_pos)) continue;
         if (!reachable[player_pos.to_index()] || box_block[new_box.to_index()]) continue;
 
-        pushes.push_back({player_pos, dir});
+        pushes.push_back(dir);
     }
 
     return pushes;
 }
 
-void State::normalize() {
+State State::pull(size_t box_id, const Direction& dir) const {
+    const Position& box = reachable_boxes[box_id];
+    Position new_box = box + dir;
+    Map new_boxes = boxes;
+
+    reset_pos(new_boxes, box);
+    set_pos(new_boxes, new_box);
+
+    Position new_player = new_box + dir;
+    return State(new_player, new_boxes);
+}
+
+vector<Direction> State::available_pulls(size_t box_id) const {
+    Map player_block = game.player_map | boxes;
+    Map box_block = game.box_map | boxes;
+    vector<Direction> pulls;
+
+    for (Direction dir : DIRECTIONS) {  // The pull direction
+        const Position& box = reachable_boxes[box_id];
+        Position player_pos = box + dir;
+        Position new_box = player_pos;
+        Position new_player = player_pos + dir;
+
+        if (!game.pos_valid(new_box) || !game.pos_valid(new_player) || !game.pos_valid(player_pos)) continue;
+        if (!reachable[player_pos.to_index()] || box_block[new_box.to_index()] || player_block[new_player.to_index()])
+            continue;
+
+        pulls.push_back(dir);
+    }
+
+    return pulls;
+}
+
+void State::normalize(StateMode mode) {
     Map player_block = game.player_map | boxes;
     Map visited;
 
@@ -196,7 +229,8 @@ void State::normalize() {
                 if (!player_block[idx])  // Empty space
                     q.push(next);
                 if (boxes[idx]) {
-                    if (next.is_dead_pos(player_block, true)) {
+                    // The dead case of pulling is nearly impossible, so we only check the dead case of pushing here
+                    if (mode == StateMode::PUSH && next.is_dead_pos(player_block, true)) {
                         normalized = false;
                         dead = true;
                         return;
@@ -244,12 +278,11 @@ State Game::load(const char* sample_filepath) {
     height = lines.size();
 
     Position player;
-    Map boxes;
-    boxes.reset();
 
     player_map.reset();
     box_map.reset();
     targets.reset();
+    initial_boxes.reset();
 
     Position pos;
     for (pos.y = 0; pos.y < height; pos.y++) {
@@ -269,9 +302,9 @@ State Game::load(const char* sample_filepath) {
             } else if (cell == '.') {  // Target position
                 targets.set(pos.to_index());
             } else if (cell == 'x') {  // Box
-                boxes.set(pos.to_index());
+                initial_boxes.set(pos.to_index());
             } else if (cell == 'X') {  // Box on target
-                boxes.set(pos.to_index());
+                initial_boxes.set(pos.to_index());
                 targets.set(pos.to_index());
             } else if (cell == 'o') {  // Player
                 player = pos;
@@ -282,7 +315,9 @@ State Game::load(const char* sample_filepath) {
         }
     }
 
-    return State(player, boxes);
+    return State(player, initial_boxes);
 }
+
+// TODO: Add fragile tiles against dead wall
 
 Game::Game() {}

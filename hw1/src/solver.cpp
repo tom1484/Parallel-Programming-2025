@@ -46,11 +46,11 @@ vector<Direction> Solver::inner_path(const Map &boxes, const Position &start, co
     return path;
 }
 
-vector<Direction> Solver::expand_solution(const State &initial_state, const vector<Move> &moves) const {
+vector<Direction> Solver::expand_solution(const State &initial_state) const {
     vector<Direction> full_path;
 
     State state = initial_state;
-    for (const auto &[box, dir] : moves) {
+    for (const auto &[box, dir] : solution) {
         // Find path from current player position to the pushing position
         Position push_pos = box - dir;
         vector<Direction> path_to_push = inner_path(state.boxes, state.player, push_pos);
