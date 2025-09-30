@@ -89,6 +89,7 @@ def merge_files():
         "include/game.hpp",
         "include/solver.hpp", 
         "include/bfs_solver.hpp",
+        "include/bi_bfs_solver.hpp",
         "include/a_star_solver.hpp"
     ]
     
@@ -96,6 +97,8 @@ def merge_files():
         "src/game.cpp",
         "src/solver.cpp",
         "src/bfs_solver.cpp",
+        "src/bi_bfs_solver.cpp",
+        "src/a_star_solver.cpp",
         "src/main.cpp"  # main.cpp should be last
     ]
     
