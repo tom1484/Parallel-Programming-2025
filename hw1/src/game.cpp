@@ -104,7 +104,40 @@ State::State() : player(0, 0), boxes(0), normalized(false), dead(false) {}
 
 State::State(Position init_player, Map boxes) : player(init_player), boxes(boxes), normalized(false), dead(false) {}
 
-// Move the box and update the current connected component
+#ifdef DEBUG
+void State::calculate_map_vis() {
+    map_vis.resize(game.height, string(game.width, ' '));
+    for (size_t y = 0; y < game.height; ++y) {
+        for (size_t x = 0; x < game.width; ++x) {
+            Position pos(x, y);
+            uint16_t idx = pos.to_index();
+            if (game.player_map[idx] && game.box_map[idx]) {
+                map_vis[y][x] = '#';
+            } else if (!game.player_map[idx] && game.box_map[idx]) {
+                if (pos == player)
+                    map_vis[y][x] = '!';
+                else
+                    map_vis[y][x] = '@';
+            } else if (boxes[idx]) {
+                if (game.targets[idx])
+                    map_vis[y][x] = 'X';
+                else
+                    map_vis[y][x] = 'x';
+            } else if (game.targets[idx]) {
+                map_vis[y][x] = '.';
+            } else if (reachable[idx])
+                map_vis[y][x] = '-';
+            if (pos == player) {
+                if (game.targets[idx])
+                    map_vis[y][x] = 'O';
+                else
+                    map_vis[y][x] = 'o';
+            }
+        }
+    }
+}
+#endif
+
 State State::push(size_t box_id, const Direction& dir) const {
     const Position& box = reachable_boxes[box_id];
     Position new_box = box + dir;
@@ -177,6 +210,10 @@ void State::normalize() {
 
     normalized = true;
     dead = false;
+
+#ifdef DEBUG
+    calculate_map_vis();
+#endif
 }
 
 uint64_t State::hash() const {

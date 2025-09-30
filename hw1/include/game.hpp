@@ -99,6 +99,11 @@ class State {
 
     void normalize();
     uint64_t hash() const;
+
+#ifdef DEBUG
+    vector<string> map_vis;
+    void calculate_map_vis();
+#endif
 };
 
 // class Game
