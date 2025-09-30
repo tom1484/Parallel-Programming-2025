@@ -10,9 +10,9 @@
             "console": "integratedTerminal",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "program": "${workspaceFolder}/build/hw1",
+            "program": "${workspaceFolder}/build/Debug/hw1",
             "args": [
-                "${workspaceFolder}/samples/06.txt"
+                "${workspaceFolder}/assets/samples/${input:sampleID}.txt"
             ],
             "stopOnEntry": false,
             "preLaunchTask": "build-debug",
@@ -20,5 +20,13 @@
                 "settings set target.inline-breakpoint-strategy always"
             ]
         },
+    ],
+    "inputs": [
+        {
+            "id": "sampleID",
+            "type": "promptString",
+            "description": "Enter the id of the sample file",
+            "default": "01"
+        }
     ]
 }
