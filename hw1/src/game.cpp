@@ -305,6 +305,9 @@ State Game::load(const char* sample_filepath) {
     box_map.reset();
     targets.reset();
     initial_boxes.reset();
+    
+    target_list.clear();
+    initial_boxes_list.clear();
 
     Position pos;
     for (pos.y = 0; pos.y < height; pos.y++) {
@@ -323,16 +326,21 @@ State Game::load(const char* sample_filepath) {
                 box_map.set(pos.to_index());
             } else if (cell == '.') {  // Target position
                 targets.set(pos.to_index());
+                target_list.push_back(pos);
             } else if (cell == 'x') {  // Box
                 initial_boxes.set(pos.to_index());
+                initial_boxes_list.push_back(pos);
             } else if (cell == 'X') {  // Box on target
                 initial_boxes.set(pos.to_index());
+                initial_boxes_list.push_back(pos);
                 targets.set(pos.to_index());
+                target_list.push_back(pos);
             } else if (cell == 'o') {  // Player
                 player = pos;
             } else if (cell == 'O') {  // Player on target
                 player = pos;
                 targets.set(pos.to_index());
+                target_list.push_back(pos);
             }
         }
     }

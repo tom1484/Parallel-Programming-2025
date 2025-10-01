@@ -125,6 +125,9 @@ class Game {
     Map player_map, box_map;
     Map targets;
     Map initial_boxes;  // For bi-directional BFS
+    
+    vector<Position> target_list;
+    vector<Position> initial_boxes_list;
 
     Game();
 

@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "a_star_solver.hpp"
 #include "bi_bfs_solver.hpp"
 #include "game.hpp"
 
@@ -9,7 +10,8 @@ int main(int /*argc*/, char* argv[]) {
     State initial_state = game.load(argv[1]);
     game.mark_virtual_fragile_tiles();
 
-    BiBFSSolver solver(initial_state);
+    // BiBFS::Solver solver(initial_state);
+    AStar::Solver solver(initial_state);
     vector<Direction> solution = solver.solve();
 
     string output = "";

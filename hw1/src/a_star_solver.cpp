@@ -6,11 +6,29 @@
 #include <queue>
 #include <unordered_map>
 
+using namespace std;
+using namespace AStar;
+
 extern Game game;
 
+// Use the Manhattan distance between each box and its nearest target as the heuristic
+uint32_t AStar::heuristic(const State& state, StateMode mode) {
+    uint32_t h = 0;
+    vector<Position>& target_list = mode == StateMode::PUSH ? game.target_list : game.initial_boxes_list;
+    for (const Position& box : state.reachable_boxes) {
+        uint32_t min_dist = UINT32_MAX;
+        for (const Position& target : target_list) {
+            uint32_t dist = abs((int)box.x - (int)target.x) + abs((int)box.y - (int)target.y);
+            min_dist = min(min_dist, dist);
+        }
+        h += min_dist;
+    }
+    return h;
+}
+
 // Normalize the state and check if it's dead or visited
-optional<pair<uint64_t, size_t>> AStarSolver::normalize_and_insert_history(State& state, StateMode mode,
-                                                                           const pair<Move, size_t>& new_op) {
+optional<pair<uint64_t, size_t>> Solver::normalize_and_insert_history(State& state, StateMode mode,
+                                                                      const pair<Move, size_t>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
 
@@ -27,7 +45,7 @@ optional<pair<uint64_t, size_t>> AStarSolver::normalize_and_insert_history(State
     return {{state_hash, history_idx}};
 }
 
-void AStarSolver::forward_step() {
+void Solver::forward_step() {
     PQueue& q = forward_queue;
     auto [curr_depth, _, curr_state, history_idx] = q.top();
     q.pop();
@@ -56,12 +74,12 @@ void AStarSolver::forward_step() {
                 return;
             }
 
-            q.push({curr_depth + 1, 0, new_state, new_history_idx});
+            q.push({curr_depth + 1, heuristic(new_state), new_state, new_history_idx});
         }
     }
 }
 
-void AStarSolver::backward_step() {
+void Solver::backward_step() {
     PQueue& q = backward_queue;
     auto [curr_depth, _, curr_state, history_idx] = q.top();
     q.pop();
@@ -90,12 +108,12 @@ void AStarSolver::backward_step() {
                 return;
             }
 
-            q.push({curr_depth + 1, 0, new_state, new_history_idx});
+            q.push({curr_depth + 1, heuristic(new_state), new_state, new_history_idx});
         }
     }
 }
 
-void AStarSolver::construct_solution(size_t forward_history_idx, size_t backward_history_idx) {
+void Solver::construct_solution(size_t forward_history_idx, size_t backward_history_idx) {
     vector<Move> history;
     for (size_t i = forward_history_idx; i != (size_t)(-1); i = forward_history[i].second) {
         const auto& [move, prev_idx] = forward_history[i];
@@ -112,14 +130,14 @@ void AStarSolver::construct_solution(size_t forward_history_idx, size_t backward
 }
 
 #ifdef DEBUG
-vector<Direction> AStarSolver::forward_solve() {
+vector<Direction> Solver::forward_solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
     int last_print = 0;
 
     // State, (pushed box index, direction)
     State curr_state = initial_state;
     normalize_and_insert_history(curr_state, StateMode::PUSH, {Move(), -1});
-    forward_queue.push({0, 0, curr_state, (size_t)(-1)});
+    forward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
 
     while (!solved && !forward_queue.empty()) {
         forward_step();
@@ -137,7 +155,7 @@ vector<Direction> AStarSolver::forward_solve() {
 #endif
 
 #ifdef DEBUG
-vector<Direction> AStarSolver::backward_solve() {
+vector<Direction> Solver::backward_solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
     int last_print = 0;
 
@@ -145,7 +163,7 @@ vector<Direction> AStarSolver::backward_solve() {
     State curr_state = initial_state;
     curr_state.boxes = game.targets;  // Inverse the target and initial state
     normalize_and_insert_history(curr_state, StateMode::PULL, {Move(), -1});
-    backward_queue.push({0, 0, curr_state, (size_t)(-1)});
+    backward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
 
     // Permute different end states
     {
@@ -160,7 +178,7 @@ vector<Direction> AStarSolver::backward_solve() {
                 possible_state.reset();
                 possible_state.player = pos;
                 normalize_and_insert_history(possible_state, StateMode::PULL, {Move(), -1});
-                backward_queue.push({0, 0, possible_state, (size_t)(-1)});
+                backward_queue.push({0, heuristic(possible_state), possible_state, (size_t)(-1)});
 
                 curr_state.reachable |= possible_state.reachable;
             }
@@ -180,7 +198,7 @@ vector<Direction> AStarSolver::backward_solve() {
 }
 #endif
 
-vector<Direction> AStarSolver::solve() {
+vector<Direction> Solver::solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
 #ifdef DEBUG
     int last_print = 0;
@@ -189,11 +207,11 @@ vector<Direction> AStarSolver::solve() {
     State curr_state = initial_state;
     // Initialize forward search
     normalize_and_insert_history(curr_state, StateMode::PUSH, {Move(), -1});
-    forward_queue.push({0, 0, curr_state, (size_t)(-1)});
+    forward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
     // Initialize backward search
     curr_state.boxes = game.targets;  // Inverse the target and initial state
     normalize_and_insert_history(curr_state, StateMode::PULL, {Move(), -1});
-    backward_queue.push({0, 0, curr_state, (size_t)(-1)});
+    backward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
     // Permute different end states for backward search
     {
         Map block = game.box_map | curr_state.boxes;
@@ -207,7 +225,7 @@ vector<Direction> AStarSolver::solve() {
                 possible_state.reset();
                 possible_state.player = pos;
                 normalize_and_insert_history(possible_state, StateMode::PULL, {Move(), -1});
-                backward_queue.push({0, 0, possible_state, (size_t)(-1)});
+                backward_queue.push({0, heuristic(possible_state), possible_state, (size_t)(-1)});
 
                 curr_state.reachable |= possible_state.reachable;
             }

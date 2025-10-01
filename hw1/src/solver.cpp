@@ -6,7 +6,7 @@
 extern Game game;
 
 // Find a path from start to end within the player's connected component (simple BFS)
-vector<Direction> Solver::inner_path(const Map &boxes, const Position &start, const Position &end) const {
+vector<Direction> BaseSolver::inner_path(const Map &boxes, const Position &start, const Position &end) const {
     vector<Direction> path;
 
     Map visited = game.player_map | boxes;  // Prevent walking into walls or boxes
@@ -46,7 +46,7 @@ vector<Direction> Solver::inner_path(const Map &boxes, const Position &start, co
     return path;
 }
 
-vector<Direction> Solver::expand_solution(const State &initial_state) const {
+vector<Direction> BaseSolver::expand_solution(const State &initial_state) const {
     vector<Direction> full_path;
 
     State state = initial_state;

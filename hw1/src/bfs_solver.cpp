@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 using namespace std;
+using namespace BFS;
 
 extern Game game;
 

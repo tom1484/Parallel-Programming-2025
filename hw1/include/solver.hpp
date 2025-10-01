@@ -7,7 +7,7 @@
 
 typedef pair<Position, Direction> Move;  // (pushed box index, direction)
 
-class Solver {
+class BaseSolver {
    protected:
     const State initial_state;
     bool solved = false;
@@ -17,7 +17,7 @@ class Solver {
     vector<Direction> expand_solution(const State &initial_state) const;
 
    public:
-    Solver(const State& initial_state) : initial_state(initial_state) {}
+    BaseSolver(const State& initial_state) : initial_state(initial_state) {}
     virtual vector<Direction> solve() = 0;
 };
 

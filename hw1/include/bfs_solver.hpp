@@ -5,13 +5,17 @@
 
 #include "solver.hpp"
 
-class BFSSolver : public Solver {
+namespace BFS {
+
+class BFSSolver : public BaseSolver {
    private:
     bool normalize_and_check(State& state, unordered_set<uint64_t>& visited) const;
 
    public:
-    BFSSolver(const State& initial_state) : Solver(initial_state) {}
+    BFSSolver(const State& initial_state) : BaseSolver(initial_state) {}
     vector<Direction> solve() override;
 };
+
+}  // namespace BFS
 
 #endif  // BFS_SOLVER_HPP
