@@ -212,6 +212,16 @@ vector<Direction> State::available_pulls(size_t box_id) const {
     return pulls;
 }
 
+void State::reset() {
+    reachable.reset();
+    reachable_boxes.clear();
+    normalized = false;
+    dead = false;
+#ifdef DEBUG
+    map_vis.clear();
+#endif
+}
+
 void State::normalize(StateMode mode) {
     Map player_block = game.player_map | boxes;
     Map visited;

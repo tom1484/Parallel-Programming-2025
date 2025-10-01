@@ -7,12 +7,12 @@
 extern Game game;
 
 int main(int /*argc*/, char* argv[]) {
-    State root = game.load(argv[1]);
+    State initial_state = game.load(argv[1]);
     game.mark_virtual_fragile_tiles();
 
-    // BFSSolver solver;
-    BiBFSSolver solver;
-    vector<Direction> solution = solver.solve(root);
+    // BFSSolver solver(initial_state);
+    BiBFSSolver solver(initial_state);
+    vector<Direction> solution = solver.solve();
 
     string output = "";
     for (Direction dir : solution) output += dir_to_str(dir);

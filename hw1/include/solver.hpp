@@ -9,14 +9,16 @@ typedef pair<Position, Direction> Move;  // (pushed box index, direction)
 
 class Solver {
    protected:
+    const State initial_state;
     bool solved = false;
     vector<Move> solution;
+
     vector<Direction> inner_path(const Map &boxes, const Position &start, const Position &end) const;
     vector<Direction> expand_solution(const State &initial_state) const;
 
    public:
-    Solver() {}
-    virtual vector<Direction> solve(const State &initial_state) = 0;
+    Solver(const State& initial_state) : initial_state(initial_state) {}
+    virtual vector<Direction> solve() = 0;
 };
 
 #endif  // SOLVER_HPP

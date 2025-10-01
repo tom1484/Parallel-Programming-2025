@@ -7,8 +7,8 @@
 
 class AStarSolver : public Solver {
    public:
-    AStarSolver() {}
-    vector<Direction> solve(const State& initial_state) override;
+    AStarSolver(const State& initial_state) : Solver(initial_state) {}
+    vector<Direction> solve() override;
 };
 
 #endif  // A_STAR_SOLVER_HPP

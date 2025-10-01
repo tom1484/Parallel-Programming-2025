@@ -9,13 +9,13 @@
 
 class BiBFSSolver : public Solver {
    private:
-    bool normalize_and_check_invalid(State& state, StateMode mode, unordered_set<uint64_t>& visited) const;
+    bool normalize_and_check(State& state, StateMode mode, unordered_set<uint64_t>& visited) const;
     void forward_step(queue<pair<State, vector<Move>>>& q, unordered_set<uint64_t>& visited);
     void backward_step(queue<pair<State, vector<Move>>>& q, unordered_set<uint64_t>& visited);
 
    public:
-    BiBFSSolver() {}
-    vector<Direction> solve(const State& initial_state) override;
+    BiBFSSolver(const State& initial_state) : Solver(initial_state) {}
+    vector<Direction> solve() override;
 };
 
 #endif  // BI_BFS_SOLVER_HPP

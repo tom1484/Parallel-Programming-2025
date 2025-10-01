@@ -107,6 +107,7 @@ class State {
     State pull(size_t box_id, const Direction& dir) const;
     vector<Direction> available_pulls(size_t box_id) const;
 
+    void reset();
     void normalize(StateMode mode = StateMode::PUSH);
     uint64_t hash() const;
 
