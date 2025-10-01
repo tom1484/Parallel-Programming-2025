@@ -41,7 +41,7 @@ bool Position::is_dead_corner(const Map& boxes) const {
     return false;
 }
 
-bool Position::is_dead_wall(const Map& boxes) const {
+bool Position::is_dead_wall() const {
     static const Direction wall_dirs[4][3] = {
         {Direction::LEFT, Direction::UP, Direction::DOWN},
         {Direction::UP, Direction::LEFT, Direction::RIGHT},
@@ -86,7 +86,7 @@ bool Position::is_dead_pos(const Map& boxes, bool advanced) const {
     if (game.targets[this->to_index()]) return false;
 
     if (is_dead_corner(boxes)) return true;
-    if (advanced && is_dead_wall(boxes)) return true;
+    if (advanced && is_dead_wall()) return true;
     
     return false;
 }
@@ -348,7 +348,7 @@ void Game::mark_virtual_fragile_tiles() {
             Position pos(x, y);
             uint16_t idx = pos.to_index();
             if (player_map[idx] || box_map[idx]) continue;
-            if (pos.is_dead_wall(box_map)) new_box_map.set(idx);
+            if (pos.is_dead_wall()) new_box_map.set(idx);
         }
     }
 

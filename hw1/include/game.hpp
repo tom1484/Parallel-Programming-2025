@@ -69,7 +69,7 @@ class Position {
 
     uint16_t to_index() const;
     bool is_dead_corner(const Map& boxes) const;
-    bool is_dead_wall(const Map& boxes) const;
+    bool is_dead_wall() const;
     bool is_dead_pos(const Map& boxes, bool advanced = false) const;
 
     Position operator+(const Direction& dir) const;
