@@ -1,0 +1,50 @@
+#!/bin/env bash
+
+# Build the project
+echo "Building project..."
+cmake --build build/Release
+echo ""
+
+echo "Running benchmark on all 25 samples..."
+echo "================================================"
+
+# Initialize total time
+total_time=0
+
+# Iterate over all 25 samples
+for i in {01..25}; do
+    sample_file="assets/samples/${i}.txt"
+    
+    if [[ ! -f "$sample_file" ]]; then
+        echo "Sample ${i}: File not found - skipping"
+        continue
+    fi
+    
+    # Run the solver and measure time
+    start_time=$(date +%s%N)
+    ./build/Release/hw1 "$sample_file" > assets/answer.txt
+    end_time=$(date +%s%N)
+    elapsed_time_ns=$((end_time - start_time))
+    elapsed_time_seconds=$(echo "scale=6; $elapsed_time_ns / 1000000000" | bc -l)
+    
+    # Add to total time (keep in nanoseconds for accuracy)
+    total_time=$((total_time + elapsed_time_ns))
+    
+    # Validate the result
+    validation_result=$(python3 scripts/validate.py "$sample_file" assets/answer.txt 2>&1)
+    if [[ $? -eq 0 ]]; then
+        status="PASSED"
+    else
+        status="FAILED"
+    fi
+    
+    # Output in the requested format
+    printf "Sample %s: %.6f seconds - %s\n" "$i" "$elapsed_time_seconds" "$status"
+done
+
+echo "================================================"
+echo "Benchmark completed!"
+total_time_seconds=$(echo "scale=6; $total_time / 1000000000" | bc -l)
+average_time_seconds=$(echo "scale=6; $total_time / 25 / 1000000000" | bc -l)
+printf "Total time: %.6f seconds\n" "$total_time_seconds"
+printf "Average time per sample: %.6f seconds\n" "$average_time_seconds"
