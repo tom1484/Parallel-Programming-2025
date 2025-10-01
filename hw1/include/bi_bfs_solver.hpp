@@ -1,10 +1,10 @@
 #ifndef BI_BFS_SOLVER_HPP
 #define BI_BFS_SOLVER_HPP
 
+#include <optional>
 #include <queue>
 #include <unordered_map>
 #include <vector>
-#include <optional>
 
 #include "solver.hpp"
 
@@ -23,9 +23,11 @@ class BiBFSSolver : public Solver {
     History forward_history;
     History backward_history;
 
-    optional<size_t> normalize_and_insert_history(State& state, StateMode mode, const pair<Move, size_t>& new_op);
+    optional<pair<uint64_t, size_t>> normalize_and_insert_history(State& state, StateMode mode,
+                                                                  const pair<Move, size_t>& new_op);
     void forward_step();
     void backward_step();
+    void construct_solution(size_t forward_history_idx, size_t backward_history_idx);
 
    public:
     BiBFSSolver(const State& initial_state) : Solver(initial_state) {}
