@@ -29,6 +29,8 @@ bool Position::is_dead_corner(const Map& boxes) const {
         {Direction::DOWN, Direction::LEFT},
     };
 
+    if (game.targets[to_index()]) return false;  // Target is never dead
+
     for (const Direction* comb : corner_dirs) {
         Position neighbor0 = *this + comb[0];
         Position neighbor1 = *this + comb[1];
@@ -78,15 +80,6 @@ bool Position::is_dead_wall() const {
         }
         if (!escaped) return true;
     }
-
-    return false;
-}
-
-bool Position::is_dead_pos(const Map& boxes, bool advanced) const {
-    if (game.targets[this->to_index()]) return false;
-
-    if (is_dead_corner(boxes)) return true;
-    if (advanced && is_dead_wall()) return true;
     
     return false;
 }
@@ -250,7 +243,7 @@ void State::normalize(StateMode mode) {
                     q.push(next);
                 if (boxes[idx]) {
                     // The dead case of pulling is nearly impossible, so we only check the dead case of pushing here
-                    if (mode == StateMode::PUSH && next.is_dead_pos(player_block, false)) {
+                    if (mode == StateMode::PUSH && next.is_dead_corner(player_block)) {
                         normalized = false;
                         dead = true;
                         return;
@@ -356,7 +349,7 @@ void Game::mark_virtual_fragile_tiles() {
             Position pos(x, y);
             uint16_t idx = pos.to_index();
             if (player_map[idx] || box_map[idx]) continue;
-            if (pos.is_dead_wall()) new_box_map.set(idx);
+            if (pos.is_dead_wall() || pos.is_dead_corner()) new_box_map.set(idx);
         }
     }
 
