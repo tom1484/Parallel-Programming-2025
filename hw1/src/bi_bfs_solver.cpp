@@ -12,7 +12,7 @@ using namespace BiBFS;
 extern Game game;
 
 // Normalize the state and check if it's dead or visited
-optional<pair<uint64_t, size_t>> Solver::normalize_and_insert_history(State& state, StateMode mode,
+optional<pair<uint64_t, size_t>> BiBFS::Solver::normalize_and_insert_history(State& state, StateMode mode,
                                                                            const pair<Move, size_t>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
@@ -30,7 +30,7 @@ optional<pair<uint64_t, size_t>> Solver::normalize_and_insert_history(State& sta
     return {{state_hash, history_idx}};
 }
 
-void Solver::forward_step() {
+void BiBFS::Solver::forward_step() {
     queue<Node>& q = forward_queue;
     auto [curr_state, history_idx] = q.front();
     q.pop();
@@ -64,7 +64,7 @@ void Solver::forward_step() {
     }
 }
 
-void Solver::backward_step() {
+void BiBFS::Solver::backward_step() {
     queue<Node>& q = backward_queue;
     auto [curr_state, history_idx] = q.front();
     q.pop();
@@ -98,7 +98,7 @@ void Solver::backward_step() {
     }
 }
 
-void Solver::construct_solution(size_t forward_history_idx, size_t backward_history_idx) {
+void BiBFS::Solver::construct_solution(size_t forward_history_idx, size_t backward_history_idx) {
     vector<Move> history;
     for (size_t i = forward_history_idx; i != (size_t)(-1); i = forward_history[i].second) {
         const auto& [move, prev_idx] = forward_history[i];
@@ -115,7 +115,7 @@ void Solver::construct_solution(size_t forward_history_idx, size_t backward_hist
 }
 
 #ifdef DEBUG
-vector<Direction> Solver::forward_solve() {
+vector<Direction> BiBFS::Solver::forward_solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
     int last_print = 0;
 
@@ -140,7 +140,7 @@ vector<Direction> Solver::forward_solve() {
 #endif
 
 #ifdef DEBUG
-vector<Direction> Solver::backward_solve() {
+vector<Direction> BiBFS::Solver::backward_solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
     int last_print = 0;
 
@@ -183,7 +183,7 @@ vector<Direction> Solver::backward_solve() {
 }
 #endif
 
-vector<Direction> Solver::solve() {
+vector<Direction> BiBFS::Solver::solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
 #ifdef DEBUG
     int last_print = 0;

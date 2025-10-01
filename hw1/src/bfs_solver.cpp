@@ -10,7 +10,7 @@ using namespace BFS;
 extern Game game;
 
 // Normalize the state and check if it's dead or visited
-bool BFSSolver::normalize_and_check(State& state, unordered_set<uint64_t>& visited) const {
+bool BFS::Solver::normalize_and_check(State& state, unordered_set<uint64_t>& visited) const {
     state.normalize();
     if (state.dead) return true;  // Dead state
 
@@ -20,7 +20,7 @@ bool BFSSolver::normalize_and_check(State& state, unordered_set<uint64_t>& visit
     return false;
 }
 
-vector<Direction> BFSSolver::solve() {
+vector<Direction> BFS::Solver::solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
 
     // State, (pushed box index, direction)

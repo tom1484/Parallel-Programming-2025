@@ -7,12 +7,12 @@
 
 namespace BFS {
 
-class BFSSolver : public BaseSolver {
+class Solver : public BaseSolver {
    private:
     bool normalize_and_check(State& state, unordered_set<uint64_t>& visited) const;
 
    public:
-    BFSSolver(const State& initial_state) : BaseSolver(initial_state) {}
+    Solver(const State& initial_state) : BaseSolver(initial_state) {}
     vector<Direction> solve() override;
 };
 
