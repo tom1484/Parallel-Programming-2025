@@ -124,37 +124,6 @@ def merge_files():
             # Remove include guards and local includes
             content = remove_local_includes(content, local_headers)
             
-            # Remove include guards (#ifndef, #define, #endif)
-            lines = content.split('\n')
-            filtered_lines = []
-            in_include_guard = False
-            guard_name = ""
-            
-            for line in lines:
-                stripped = line.strip()
-                
-                # Detect start of include guard
-                if stripped.startswith('#ifndef ') and stripped.endswith('_HPP'):
-                    guard_name = stripped.split()[-1]
-                    in_include_guard = True
-                    continue
-                
-                # Skip the corresponding #define
-                elif stripped.startswith('#define ') and stripped.endswith('_HPP') and guard_name in stripped:
-                    continue
-                
-                # Detect end of include guard
-                elif stripped.startswith('#endif') and in_include_guard:
-                    # Check if this is the closing endif for our guard
-                    if ('// ' + guard_name in line) or stripped == '#endif':
-                        in_include_guard = False
-                        guard_name = ""
-                        continue
-                
-                filtered_lines.append(line)
-            
-            content = '\n'.join(filtered_lines)
-            
             merged_content.append(f"// From {header_file}")
             merged_content.append(content)
             merged_content.append("")
@@ -185,9 +154,13 @@ def main():
     submission_dir = "submission"
     if os.path.exists(submission_dir):
         print(f"Removing existing {submission_dir} directory...")
-        shutil.rmtree(submission_dir)
-    
-    os.makedirs(submission_dir)
+        for child in Path(submission_dir).iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+    os.makedirs(submission_dir, exist_ok=True)
     print(f"Created {submission_dir} directory")
     
     # Extract compiler flags
