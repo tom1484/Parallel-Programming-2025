@@ -39,7 +39,7 @@ bool Position::is_dead_corner(const Map& boxes) const {
         if (boxes[neighbor0.to_index()] && boxes[neighbor1.to_index()] && game.player_map[corner.to_index()])
             return true;
     }
-    
+
     return false;
 }
 
@@ -80,7 +80,7 @@ bool Position::is_dead_wall() const {
         }
         if (!escaped) return true;
     }
-    
+
     return false;
 }
 
@@ -129,9 +129,9 @@ void State::calculate_map_vis() {
                     map_vis[y][x] = 'x';
             } else if (game.targets[idx]) {
                 map_vis[y][x] = '.';
-            } else if (reachable[idx])
+            } else if (reachable[idx]) {
                 map_vis[y][x] = '-';
-            if (pos == player) {
+            } else if (pos == player) {
                 if (game.targets[idx])
                     map_vis[y][x] = 'O';
                 else
@@ -298,7 +298,7 @@ State Game::load(const char* sample_filepath) {
     box_map.reset();
     targets.reset();
     initial_boxes.reset();
-    
+
     target_list.clear();
     initial_boxes_list.clear();
 
