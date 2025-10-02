@@ -9,6 +9,7 @@ namespace BFS {
 
 class Solver : public BaseSolver {
    private:
+    bool solved = false;
     bool normalize_and_check(State& state, unordered_set<uint64_t>& visited) const;
 
    public:

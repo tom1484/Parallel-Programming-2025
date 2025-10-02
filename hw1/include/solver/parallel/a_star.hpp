@@ -1,6 +1,7 @@
 #ifndef PARALLEL_A_STAR_SOLVER_HPP
 #define PARALLEL_A_STAR_SOLVER_HPP
 
+#include <atomic>
 #include <optional>
 #include <queue>
 #include <unordered_map>
@@ -9,6 +10,7 @@
 #include "solver/base.hpp"
 
 #define MAX_THREADS 16
+#define BATCH_SIZE 2000
 
 namespace ParallelAStar {
 
@@ -33,14 +35,16 @@ struct NodeCompare {
 typedef queue<Node> Queue;
 typedef priority_queue<Node, vector<Node>, NodeCompare> PQueue;
 
-typedef pair<uint32_t, HistoryIndex> InsertResult;
+typedef pair<uint64_t, HistoryIndex> InsertResult;
 
 uint32_t heuristic(const State& state, Mode mode);
 
 class Solver : public BaseSolver {
    private:
+    atomic<bool> solved = false;
+
     PQueue pqueues[2];
-    Visited visiteds[2];
+    Visited visiteds[2];  // This may be accessed by multiple threads
 
     size_t num_threads;
     pthread_t mode_threads[2][MAX_THREADS];
@@ -48,7 +52,7 @@ class Solver : public BaseSolver {
     vector<Queue> dist_queues[2];
     vector<Queue> sub_queues[2];
     vector<Visited> sub_visiteds[2];
-    vector<History> sub_histories[2];
+    vector<History> sub_histories[2];  // Only this sub-container may be accessed by multiple threads
 
     // Store solution history indexes
     pair<HistoryIndex, HistoryIndex> solution_history_idx;

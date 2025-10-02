@@ -10,7 +10,7 @@ vector<Direction> BaseSolver::inner_path(const Map &boxes, const Position &start
     vector<Direction> path;
 
     Map visited = game.player_map | boxes;  // Prevent walking into walls or boxes
-    Direction from[MAX_SIZE] = {};   // NOTE: This could be optimized (i.e. make it global for reuse)
+    Direction from[MAX_SIZE] = {};          // NOTE: This could be optimized (i.e. make it global for reuse)
 
     queue<Position> q;
     q.push(start);

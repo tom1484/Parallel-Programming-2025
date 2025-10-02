@@ -13,7 +13,7 @@ extern Game game;
 
 // Normalize the state and check if it's dead or visited
 optional<pair<uint64_t, size_t>> BiBFS::Solver::normalize_and_insert_history(State& state, Mode mode,
-                                                                           const pair<Move, size_t>& new_op) {
+                                                                             const pair<Move, size_t>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
 

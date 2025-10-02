@@ -32,8 +32,7 @@ uint32_t ParallelAStar::heuristic(const State& state, Mode mode) {
 }
 
 // Normalize the state and check if it's dead or visited
-optional<InsertResult> ParallelAStar::Solver::normalize_and_insert_history(size_t thread_id, State& state,
-                                                                           Mode mode,
+optional<InsertResult> ParallelAStar::Solver::normalize_and_insert_history(size_t thread_id, State& state, Mode mode,
                                                                            const pair<Move, HistoryIndex>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
@@ -53,11 +52,11 @@ optional<InsertResult> ParallelAStar::Solver::normalize_and_insert_history(size_
     pthread_mutex_unlock(&visited_mutex);
 
     // Lock history mutex to safely access thread's sub_visited and sub_history
-    pthread_mutex_lock(&sub_history_mutex);
     if (in_visited || sub_visited.count(state_hash)) {
-        pthread_mutex_unlock(&sub_history_mutex);
+        // pthread_mutex_unlock(&sub_history_mutex);
         return nullopt;  // Visited state
     }
+    pthread_mutex_lock(&sub_history_mutex);
     HistoryIndex history_idx = {thread_id, sub_history.size()};
     sub_history.push_back(new_op);
     pthread_mutex_unlock(&sub_history_mutex);
@@ -85,8 +84,7 @@ void ParallelAStar::Solver::forward_step(size_t thread_id) {
     auto [curr_depth, _, curr_state, history_idx] = dist_queue.front();
     dist_queue.pop();
 
-    const Move& prev_move =
-        (history_idx.second != (size_t)(-1)) ? get_history_at(FORWARD, history_idx).first : Move{};
+    const Move& prev_move = (history_idx.second != (size_t)(-1)) ? get_history_at(FORWARD, history_idx).first : Move{};
     for (size_t box_id = 0; box_id < curr_state.reachable_boxes.size(); ++box_id) {
         Position box = curr_state.reachable_boxes[box_id];
         vector<Direction> pushes = curr_state.available_pushes(box_id);
@@ -95,8 +93,7 @@ void ParallelAStar::Solver::forward_step(size_t thread_id) {
             if (box == prev_move.first && dir == dir_inv(prev_move.second)) continue;  // Avoid moving back
 
             State new_state = curr_state.push(box_id, dir);
-            auto insert_result =
-                normalize_and_insert_history(thread_id, new_state, FORWARD, {{box, dir}, history_idx});
+            auto insert_result = normalize_and_insert_history(thread_id, new_state, FORWARD, {{box, dir}, history_idx});
             if (!insert_result) continue;
             auto& [state_hash, new_history_idx] = insert_result.value();
 
@@ -110,10 +107,10 @@ void ParallelAStar::Solver::forward_step(size_t thread_id) {
             }
             pthread_mutex_unlock(&visiteds_mutex[BACKWARD]);
 
-            if (new_state.boxes == game.targets) {
-                set_solution_history_idx(new_history_idx, {0, (size_t)(-1)});
-                return;
-            }
+            // if (new_state.boxes == game.targets) {
+            //     set_solution_history_idx(new_history_idx, {0, (size_t)(-1)});
+            //     return;
+            // }
 
             sub_queue.push({curr_depth + 1, heuristic(new_state, FORWARD), new_state, new_history_idx});
         }
@@ -126,8 +123,7 @@ void ParallelAStar::Solver::backward_step(size_t thread_id) {
     auto [curr_depth, _, curr_state, history_idx] = dist_queue.front();
     dist_queue.pop();
 
-    const Move& prev_move =
-        (history_idx.second != (size_t)(-1)) ? get_history_at(BACKWARD, history_idx).first : Move{};
+    const Move& prev_move = (history_idx.second != (size_t)(-1)) ? get_history_at(BACKWARD, history_idx).first : Move{};
     for (size_t box_id = 0; box_id < curr_state.reachable_boxes.size(); ++box_id) {
         Position box = curr_state.reachable_boxes[box_id];
         vector<Direction> pulls = curr_state.available_pulls(box_id);
@@ -145,16 +141,16 @@ void ParallelAStar::Solver::backward_step(size_t thread_id) {
             pthread_mutex_lock(&visiteds_mutex[FORWARD]);
             bool in_forward_visited = visiteds[FORWARD].count(state_hash);
             if (in_forward_visited) {
-                set_solution_history_idx(new_history_idx, visiteds[FORWARD][state_hash]);
+                set_solution_history_idx(visiteds[FORWARD][state_hash], new_history_idx);
                 pthread_mutex_unlock(&visiteds_mutex[FORWARD]);
                 return;
             }
             pthread_mutex_unlock(&visiteds_mutex[FORWARD]);
 
-            if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
-                set_solution_history_idx({0, (size_t)(-1)}, new_history_idx);
-                return;
-            }
+            // if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
+            //     set_solution_history_idx({0, (size_t)(-1)}, new_history_idx);
+            //     return;
+            // }
 
             sub_queue.push({curr_depth + 1, heuristic(new_state, BACKWARD), new_state, new_history_idx});
         }
@@ -198,7 +194,9 @@ void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
         }
         distributed++;
     }
+#ifdef DEBUG
     cerr << "Mode: " << mode << ", depth: " << depth << ", distributed: " << distributed << endl;
+#endif
 
     for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
         int create_result = pthread_create(
@@ -209,8 +207,7 @@ void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
                 solver->run_batch(p->first, p->second);
                 return nullptr;
             },
-            new pair<ParallelAStar::Solver*, pair<size_t, Mode>*>(this,
-                                                                       new pair<size_t, Mode>{thread_id, mode}));
+            new pair<ParallelAStar::Solver*, pair<size_t, Mode>*>(this, new pair<size_t, Mode>{thread_id, mode}));
         if (create_result) {
             cerr << "Error creating thread: " << create_result << endl;
             exit(-1);
@@ -275,7 +272,6 @@ void ParallelAStar::Solver::construct_solution() {
 
 ParallelAStar::Solver::Solver(const State& initial_state) : BaseSolver(initial_state) {
     num_threads = thread::hardware_concurrency();
-    // num_threads = 1;
 
     pthread_mutex_init(&solution_mutex, nullptr);
     for (size_t mode : {FORWARD, BACKWARD}) {
@@ -339,8 +335,7 @@ vector<Direction> ParallelAStar::Solver::solve() {
                 possible_state.reset();
                 possible_state.player = pos;
                 normalize_and_insert_history(0, possible_state, BACKWARD, dummy_op);
-                backward_pqueue.push(
-                    {0, heuristic(possible_state, BACKWARD), possible_state, dummy_history_idx});
+                backward_pqueue.push({0, heuristic(possible_state, BACKWARD), possible_state, dummy_history_idx});
 
                 curr_state.reachable |= possible_state.reachable;
             }
@@ -350,15 +345,11 @@ vector<Direction> ParallelAStar::Solver::solve() {
     Visited& forward_visited = visiteds[FORWARD];
     Visited& backward_visited = visiteds[BACKWARD];
 
-    // while (!solved && !backward_pqueue.empty()) {
-    //     distribute_batch(10000, StateMode::PULL);
-    // while (!solved && !forward_pqueue.empty()) {
-    //     distribute_batch(10000, StateMode::PUSH);
     while (!solved && !forward_pqueue.empty() && !backward_pqueue.empty()) {
         if (forward_visited.size() <= backward_visited.size())
-            distribute_batch(5000, FORWARD);
+            distribute_batch(BATCH_SIZE, FORWARD);
         else
-            distribute_batch(5000, BACKWARD);
+            distribute_batch(BATCH_SIZE, BACKWARD);
     }
     if (solved) {
         construct_solution();

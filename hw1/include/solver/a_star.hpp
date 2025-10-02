@@ -33,6 +33,8 @@ uint32_t heuristic(const State& state, Mode mode = FORWARD);
 
 class Solver : public BaseSolver {
    private:
+    bool solved = false;
+
     PQueue forward_queue;
     PQueue backward_queue;
     // Hashmap of visited states and the histories index

@@ -16,6 +16,8 @@ typedef unordered_map<uint64_t, size_t> Visited;  // (state hash, history index)
 
 class Solver : public BaseSolver {
    private:
+    bool solved = false;
+
     queue<Node> forward_queue;
     queue<Node> backward_queue;
     // Hashmap of visited states and the histories index
@@ -40,6 +42,6 @@ class Solver : public BaseSolver {
 #endif
 };
 
-}  // namespace BFS
+}  // namespace BiBFS
 
 #endif  // BI_BFS_SOLVER_HPP
