@@ -51,10 +51,6 @@ class Solver : public BaseSolver {
    public:
     Solver(const State& initial_state) : BaseSolver(initial_state) {}
     vector<Direction> solve() override;
-#ifdef DEBUG
-    vector<Direction> forward_solve();
-    vector<Direction> backward_solve();
-#endif
 };
 
 }  // namespace AStar
