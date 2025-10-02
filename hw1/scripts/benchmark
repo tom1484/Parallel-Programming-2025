@@ -12,8 +12,8 @@ echo "================================================"
 total_time=0
 
 # Iterate over all 25 samples
-for i in {01..25}; do
-    sample_file="assets/samples/${i}.txt"
+for i in {1..25}; do
+    sample_file=$(printf "assets/samples/%02d.txt" "$i")
     
     if [[ ! -f "$sample_file" ]]; then
         echo "Sample ${i}: File not found - skipping"
