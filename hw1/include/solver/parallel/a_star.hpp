@@ -9,8 +9,8 @@
 
 #include "solver/base.hpp"
 
-#define MAX_THREADS 32
-#define BATCH_SIZE 1000
+#define MAX_THREADS 4
+#define BATCH_SIZE 500
 
 namespace ParallelAStar {
 

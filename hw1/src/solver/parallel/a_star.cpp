@@ -185,13 +185,12 @@ void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
     size_t distributed = 0;
 
     // Distribute nodes of the same depth to sub-queues
-    while (!empty && distributed < batch_size) {
-        for (size_t thread_id = 0; !empty && thread_id < num_threads; ++thread_id) {
-            Node node = pqueue.top();
-            pqueue.pop();
-            dist_queue[thread_id].push(node);  // Assuming single thread for now
-            empty = pqueue.empty() || pqueue.top().depth != depth;
-        }
+    for (size_t thread_id = 0; !empty && distributed < batch_size;) {
+        Node node = pqueue.top();
+        pqueue.pop();
+        dist_queue[thread_id].push(node);  // Assuming single thread for now
+        empty = pqueue.empty() || pqueue.top().depth != depth;
+        thread_id = (thread_id + 1) % num_threads;
         distributed++;
     }
 #ifdef DEBUG
