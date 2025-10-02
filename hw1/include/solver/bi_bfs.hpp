@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "base.hpp"
+#include "solver/base.hpp"
 
 namespace BiBFS {
 

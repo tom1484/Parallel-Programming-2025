@@ -3,7 +3,7 @@
 
 #include <unordered_set>
 
-#include "base.hpp"
+#include "solver/base.hpp"
 
 namespace BFS {
 
