@@ -220,13 +220,10 @@ void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
     if (solved) return;
 
     // Merge sub visited into main visited
-    // Visited local_merge;
     for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
-        // local_merge.merge(sub_visited[thread_id]);
         visited.merge(sub_visited[thread_id]);
         sub_visited[thread_id].clear();
     }
-    // visited.merge(local_merge);
     // Merge sub queues into main queue
     for (Queue& sub_q : sub_queue) {
         while (!sub_q.empty()) {
@@ -271,7 +268,7 @@ void ParallelAStar::Solver::construct_solution() {
 }
 
 ParallelAStar::Solver::Solver(const State& initial_state) : BaseSolver(initial_state) {
-    num_threads = thread::hardware_concurrency();
+    num_threads = min(thread::hardware_concurrency(), (unsigned int)MAX_THREADS);
 
     pthread_mutex_init(&solution_mutex, nullptr);
     for (size_t mode : {FORWARD, BACKWARD}) {
