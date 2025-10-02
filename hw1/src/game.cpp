@@ -23,10 +23,10 @@ uint16_t Position::to_index() const { return (y * game.width) + x; }
 
 bool Position::is_dead_corner(const Map& boxes) const {
     static const Direction corner_dirs[4][2] = {
-        {Direction::LEFT, Direction::UP},
-        {Direction::UP, Direction::RIGHT},
-        {Direction::RIGHT, Direction::DOWN},
-        {Direction::DOWN, Direction::LEFT},
+        {LEFT, UP},
+        {UP, RIGHT},
+        {RIGHT, DOWN},
+        {DOWN, LEFT},
     };
 
     if (game.targets[to_index()]) return false;  // Target is never dead
@@ -45,10 +45,10 @@ bool Position::is_dead_corner(const Map& boxes) const {
 
 bool Position::is_dead_wall() const {
     static const Direction wall_dirs[4][3] = {
-        {Direction::LEFT, Direction::UP, Direction::DOWN},
-        {Direction::UP, Direction::LEFT, Direction::RIGHT},
-        {Direction::RIGHT, Direction::UP, Direction::DOWN},
-        {Direction::DOWN, Direction::LEFT, Direction::RIGHT},
+        {LEFT, UP, DOWN},
+        {UP, LEFT, RIGHT},
+        {RIGHT, UP, DOWN},
+        {DOWN, LEFT, RIGHT},
     };
 
     for (const Direction* comb : wall_dirs) {
@@ -118,10 +118,7 @@ void State::calculate_map_vis() {
             if (game.player_map[idx] && game.box_map[idx]) {
                 map_vis[y][x] = '#';
             } else if (!game.player_map[idx] && game.box_map[idx]) {
-                if (pos == player)
-                    map_vis[y][x] = '!';
-                else
-                    map_vis[y][x] = '@';
+                map_vis[y][x] = '@';
             } else if (boxes[idx]) {
                 if (game.targets[idx])
                     map_vis[y][x] = 'X';
@@ -131,7 +128,8 @@ void State::calculate_map_vis() {
                 map_vis[y][x] = '.';
             } else if (reachable[idx]) {
                 map_vis[y][x] = '-';
-            } else if (pos == player) {
+            } 
+            if (pos == player && !game.player_map[idx]) {
                 if (game.targets[idx])
                     map_vis[y][x] = 'O';
                 else
@@ -215,7 +213,7 @@ void State::reset() {
 #endif
 }
 
-void State::normalize(StateMode mode) {
+void State::normalize(Mode mode) {
     Map player_block = game.player_map | boxes;
     Map visited;
 
@@ -243,7 +241,7 @@ void State::normalize(StateMode mode) {
                     q.push(next);
                 if (boxes[idx]) {
                     // The dead case of pulling is nearly impossible, so we only check the dead case of pushing here
-                    if (mode == StateMode::PUSH && next.is_dead_corner(player_block)) {
+                    if (mode == FORWARD && next.is_dead_corner(player_block)) {
                         normalized = false;
                         dead = true;
                         return;
@@ -273,6 +271,7 @@ uint64_t State::hash() const {
 
     // Combine the two hashes using bitwise operations
     // Use different bit positions to avoid collisions
+    // TODO: Update the shifting value
     return (player_hash << 16) ^ boxes_hash;
 }
 

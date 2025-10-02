@@ -25,7 +25,7 @@ class Solver : public BaseSolver {
     History forward_history;
     History backward_history;
 
-    optional<pair<uint64_t, size_t>> normalize_and_insert_history(State& state, StateMode mode,
+    optional<pair<uint64_t, size_t>> normalize_and_insert_history(State& state, Mode mode,
                                                                   const pair<Move, size_t>& new_op);
     void forward_step();
     void backward_step();

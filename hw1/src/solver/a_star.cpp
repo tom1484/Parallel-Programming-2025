@@ -12,9 +12,9 @@ using namespace AStar;
 extern Game game;
 
 // Use the Manhattan distance between each box and its nearest target as the heuristic
-uint32_t AStar::heuristic(const State& state, StateMode mode) {
+uint32_t AStar::heuristic(const State& state, Mode mode) {
     uint32_t h = 0;
-    vector<Position>& target_list = mode == StateMode::PUSH ? game.target_list : game.initial_boxes_list;
+    vector<Position>& target_list = mode == FORWARD ? game.target_list : game.initial_boxes_list;
     for (const Position& box : state.reachable_boxes) {
         uint32_t min_dist = UINT32_MAX;
         for (const Position& target : target_list) {
@@ -27,13 +27,13 @@ uint32_t AStar::heuristic(const State& state, StateMode mode) {
 }
 
 // Normalize the state and check if it's dead or visited
-optional<pair<uint64_t, size_t>> AStar::Solver::normalize_and_insert_history(State& state, StateMode mode,
+optional<pair<uint64_t, size_t>> AStar::Solver::normalize_and_insert_history(State& state, Mode mode,
                                                                              const pair<Move, size_t>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
 
-    Visited& visited = (mode == StateMode::PUSH) ? forward_visited : backward_visited;
-    History& history = (mode == StateMode::PUSH) ? forward_history : backward_history;
+    Visited& visited = (mode == FORWARD) ? forward_visited : backward_visited;
+    History& history = (mode == FORWARD) ? forward_history : backward_history;
 
     uint64_t state_hash = state.hash();
     if (visited.count(state_hash)) return nullopt;  // Visited state
@@ -59,7 +59,7 @@ void AStar::Solver::forward_step() {
             if (box == prev_move.first && dir == dir_inv(prev_move.second)) continue;  // Avoid pushing back
 
             State new_state = curr_state.push(box_id, dir);
-            auto insert_result = normalize_and_insert_history(new_state, StateMode::PUSH, {{box, dir}, history_idx});
+            auto insert_result = normalize_and_insert_history(new_state, FORWARD, {{box, dir}, history_idx});
             if (!insert_result) continue;
             auto& [state_hash, new_history_idx] = insert_result.value();
 
@@ -90,7 +90,7 @@ void AStar::Solver::backward_step() {
             if (box == prev_move.first && dir == dir_inv(prev_move.second)) continue;  // Avoid pushing back
 
             State new_state = curr_state.pull(box_id, dir);
-            auto insert_result = normalize_and_insert_history(new_state, StateMode::PULL, {{box, dir}, history_idx});
+            auto insert_result = normalize_and_insert_history(new_state, BACKWARD, {{box, dir}, history_idx});
             if (!insert_result) continue;
             auto& [state_hash, new_history_idx] = insert_result.value();
 
@@ -131,12 +131,11 @@ vector<Direction> AStar::Solver::solve() {
 
     State curr_state = initial_state;
     // Initialize forward search
-    normalize_and_insert_history(curr_state, StateMode::PUSH, {Move(), -1});
+    normalize_and_insert_history(curr_state, FORWARD, {Move(), -1});
     forward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
     // Initialize backward search
     curr_state.boxes = game.targets;  // Inverse the target and initial state
-    normalize_and_insert_history(curr_state, StateMode::PULL, {Move(), -1});
-    backward_queue.push({0, heuristic(curr_state), curr_state, (size_t)(-1)});
+    curr_state.reachable.reset();
     // Permute different end states for backward search
     {
         Map block = game.box_map | curr_state.boxes;
@@ -149,7 +148,7 @@ vector<Direction> AStar::Solver::solve() {
                 State possible_state = curr_state;
                 possible_state.reset();
                 possible_state.player = pos;
-                normalize_and_insert_history(possible_state, StateMode::PULL, {Move(), -1});
+                normalize_and_insert_history(possible_state, BACKWARD, {Move(), -1});
                 backward_queue.push({0, heuristic(possible_state), possible_state, (size_t)(-1)});
 
                 curr_state.reachable |= possible_state.reachable;

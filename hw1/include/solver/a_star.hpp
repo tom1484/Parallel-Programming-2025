@@ -29,7 +29,7 @@ struct NodeCompare {
 };
 typedef priority_queue<Node, vector<Node>, NodeCompare> PQueue;
 
-uint32_t heuristic(const State& state, StateMode mode = StateMode::PUSH);
+uint32_t heuristic(const State& state, Mode mode = FORWARD);
 
 class Solver : public BaseSolver {
    private:
@@ -42,7 +42,7 @@ class Solver : public BaseSolver {
     History forward_history;
     History backward_history;
 
-    optional<pair<uint64_t, size_t>> normalize_and_insert_history(State& state, StateMode mode,
+    optional<pair<uint64_t, size_t>> normalize_and_insert_history(State& state, Mode mode,
                                                                   const pair<Move, size_t>& new_op);
     void forward_step();
     void backward_step();

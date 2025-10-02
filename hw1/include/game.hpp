@@ -26,7 +26,7 @@ enum Direction {
     DOWN = 3,
 };
 
-const Direction DIRECTIONS[4] = {Direction::LEFT, Direction::RIGHT, Direction::UP, Direction::DOWN};
+const Direction DIRECTIONS[4] = {LEFT, RIGHT, UP, DOWN};
 
 typedef struct DirectionDelta {
     int8_t dx, dy;
@@ -45,13 +45,13 @@ inline DirectionDelta dir_to_delta(const Direction& dir) { return DIRECTION_DELT
 
 inline char dir_to_str(const Direction& dir) {
     switch (dir) {
-        case Direction::LEFT:
+        case LEFT:
             return 'A';
-        case Direction::RIGHT:
+        case RIGHT:
             return 'D';
-        case Direction::UP:
+        case UP:
             return 'W';
-        case Direction::DOWN:
+        case DOWN:
             return 'S';
         default:
             return 'X';
@@ -82,9 +82,9 @@ inline void reset_pos(Map& bset, const Position& pos);
 
 // class State
 
-enum StateMode {
-    PUSH = 0,
-    PULL = 1,
+enum Mode : size_t {
+    FORWARD = 0,
+    BACKWARD = 1,
 };
 
 class State {
@@ -107,7 +107,7 @@ class State {
     vector<Direction> available_pulls(size_t box_id) const;
 
     void reset();
-    void normalize(StateMode mode = StateMode::PUSH);
+    void normalize(Mode mode = FORWARD);
     uint64_t hash() const;
 
 #ifdef DEBUG
@@ -124,7 +124,7 @@ class Game {
     Map player_map, box_map;
     Map targets;
     Map initial_boxes;  // For bi-directional BFS
-    
+
     vector<Position> target_list;
     vector<Position> initial_boxes_list;
 
