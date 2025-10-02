@@ -82,24 +82,64 @@ def remove_local_includes(content, local_headers):
     
     return '\n'.join(filtered_lines)
 
+def sort_headers_by_dependency(header_contents):
+    """Sort headers based on dependencies to ensure correct order."""
+    from collections import defaultdict, deque
+
+    # Build dependency graph
+    graph = defaultdict(set)
+    in_degree = defaultdict(int)
+
+    for header, content in header_contents.items():
+        lines = content.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('#include "'):
+                match = re.match(r'#include\s+"([^"]+)"', stripped)
+                if match:
+                    included_file = match.group(1)
+                    # Find the full header name
+                    for h in header_contents.keys():
+                        if h.endswith(included_file):
+                            graph[h].add(header)
+                            in_degree[header] += 1
+                            break
+
+    # Topological sort using Kahn's algorithm
+    zero_in_degree = deque([h for h in header_contents.keys() if in_degree[h] == 0])
+    sorted_headers = []
+
+    while zero_in_degree:
+        current = zero_in_degree.popleft()
+        sorted_headers.append(current)
+        for neighbor in graph[current]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                zero_in_degree.append(neighbor)
+
+    if len(sorted_headers) != len(header_contents):
+        raise ValueError("Cyclic dependency detected among headers")
+
+    return sorted_headers
+
 def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
-    header_files = [
-        "include/game.hpp",
-        "include/solver/base.hpp", 
-        "include/solver/bfs.hpp",
-        "include/solver/bi_bfs.hpp",
-        "include/solver/a_star.hpp"
+    headers = [
+        "game.hpp",
+        "solver/base.hpp", 
+        "solver/bfs.hpp",
+        "solver/bi_bfs.hpp",
+        "solver/a_star.hpp",
     ]
     
-    source_files = [
-        "src/game.cpp",
-        "src/solver/base.cpp",
-        "src/solver/bfs.cpp",
-        "src/solver/bi_bfs.cpp",
-        "src/solver/a_star.cpp",
-        "src/main.cpp"  # main.cpp should be last
+    sources = [
+        "game.cpp",
+        "solver/base.cpp",
+        "solver/bfs.cpp",
+        "solver/bi_bfs.cpp",
+        "solver/a_star.cpp",
+        "main.cpp",
     ]
     
     merged_content = []
@@ -110,34 +150,41 @@ def merge_files():
     merged_content.append("")
     
     # Collect all local header filenames for filtering
-    local_headers = header_files.copy()
+    local_headers = headers.copy()
     
     # Process headers first
     merged_content.append("// ========== HEADER FILES ==========")
     merged_content.append("")
     
-    for header_file in header_files:
-        if os.path.exists(header_file):
-            print(f"Processing header: {header_file}")
-            content = read_file(header_file)
-            
-            # Remove include guards and local includes
-            content = remove_local_includes(content, local_headers)
-            
-            merged_content.append(f"// From {header_file}")
-            merged_content.append(content)
-            merged_content.append("")
+    header_contents = {}
+    for header in headers:
+        header_file_path = f"include/{header}"
+        if os.path.exists(header_file_path):
+            content = read_file(header_file_path)
+            header_contents[header] = content
         else:
-            raise FileNotFoundError(f"Header file {header_file} not found.")
+            raise FileNotFoundError(f"Header file {header} not found.")
+
+    header_orders = sort_headers_by_dependency(header_contents)
+    for header in header_orders:
+        print(f"Processing header: {header}")
+        content = header_contents[header]
+        # Remove include guards and local includes
+        content = remove_local_includes(content, local_headers)
+        
+        merged_content.append(f"// From {header}")
+        merged_content.append(content)
+        merged_content.append("")
     
     # Process source files
     merged_content.append("// ========== SOURCE FILES ==========")
     merged_content.append("")
     
-    for source_file in source_files:
-        if os.path.exists(source_file):
+    for source_file in sources:
+        source_file_path = f"src/{source_file}"
+        if os.path.exists(source_file_path):
             print(f"Processing source: {source_file}")
-            content = read_file(source_file)
+            content = read_file(source_file_path)
             
             # Remove local includes
             content = remove_local_includes(content, local_headers)
