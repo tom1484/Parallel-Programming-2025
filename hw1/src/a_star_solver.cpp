@@ -28,7 +28,7 @@ uint32_t AStar::heuristic(const State& state, StateMode mode) {
 
 // Normalize the state and check if it's dead or visited
 optional<pair<uint64_t, size_t>> AStar::Solver::normalize_and_insert_history(State& state, StateMode mode,
-                                                                      const pair<Move, size_t>& new_op) {
+                                                                             const pair<Move, size_t>& new_op) {
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
 
@@ -68,11 +68,8 @@ void AStar::Solver::forward_step() {
                 construct_solution(new_history_idx, backward_visited[state_hash]);
                 return;
             }
-            // Check if we reach the target
-            if (new_state.boxes == game.targets) {
-                construct_solution(new_history_idx, -1);
-                return;
-            }
+            // NOTE: No need to check if we meet the target state, since the target state is already inserted in
+            // backward search
 
             q.push({curr_depth + 1, heuristic(new_state), new_state, new_history_idx});
         }
@@ -102,11 +99,8 @@ void AStar::Solver::backward_step() {
                 construct_solution(forward_visited[state_hash], new_history_idx);
                 return;
             }
-            // Check if we meet the initial state
-            if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
-                construct_solution(-1, new_history_idx);
-                return;
-            }
+            // NOTE: No need to check if we meet the initial state, since the initial state is already inserted in
+            // forward search
 
             q.push({curr_depth + 1, heuristic(new_state), new_state, new_history_idx});
         }
