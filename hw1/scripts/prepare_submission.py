@@ -87,18 +87,18 @@ def merge_files():
     # Define file order based on dependencies
     header_files = [
         "include/game.hpp",
-        "include/solver.hpp", 
-        "include/bfs_solver.hpp",
-        "include/bi_bfs_solver.hpp",
-        "include/a_star_solver.hpp"
+        "include/solver/base.hpp", 
+        "include/solver/bfs.hpp",
+        "include/solver/bi_bfs.hpp",
+        "include/solver/a_star.hpp"
     ]
     
     source_files = [
         "src/game.cpp",
-        "src/solver.cpp",
-        "src/bfs_solver.cpp",
-        "src/bi_bfs_solver.cpp",
-        "src/a_star_solver.cpp",
+        "src/solver/base.cpp",
+        "src/solver/bfs.cpp",
+        "src/solver/bi_bfs.cpp",
+        "src/solver/a_star.cpp",
         "src/main.cpp"  # main.cpp should be last
     ]
     
@@ -127,6 +127,8 @@ def merge_files():
             merged_content.append(f"// From {header_file}")
             merged_content.append(content)
             merged_content.append("")
+        else:
+            raise FileNotFoundError(f"Header file {header_file} not found.")
     
     # Process source files
     merged_content.append("// ========== SOURCE FILES ==========")

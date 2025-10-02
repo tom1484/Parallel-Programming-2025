@@ -1,5 +1,5 @@
-#ifndef SOLVER_HPP
-#define SOLVER_HPP
+#ifndef BASE_SOLVER_HPP
+#define BASE_SOLVER_HPP
 
 #include <vector>
 

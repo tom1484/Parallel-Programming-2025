@@ -1,4 +1,4 @@
-#include "bfs_solver.hpp"
+#include "solver/bfs.hpp"
 
 #include <iostream>
 #include <queue>

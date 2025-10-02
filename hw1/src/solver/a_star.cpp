@@ -1,4 +1,4 @@
-#include "a_star_solver.hpp"
+#include "solver/a_star.hpp"
 
 #include <algorithm>
 #include <iostream>

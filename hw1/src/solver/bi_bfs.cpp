@@ -1,4 +1,4 @@
-#include "bi_bfs_solver.hpp"
+#include "solver/bi_bfs.hpp"
 
 #include <algorithm>
 #include <iostream>
