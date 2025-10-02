@@ -131,6 +131,7 @@ def merge_files():
         "solver/bfs.hpp",
         "solver/bi_bfs.hpp",
         "solver/a_star.hpp",
+        "solver/parallel/a_star.hpp",
     ]
     
     sources = [
@@ -139,6 +140,7 @@ def merge_files():
         "solver/bfs.cpp",
         "solver/bi_bfs.cpp",
         "solver/a_star.cpp",
+        "solver/parallel/a_star.cpp",
         "main.cpp",
     ]
     
