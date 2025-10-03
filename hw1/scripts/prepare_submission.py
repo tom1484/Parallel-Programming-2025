@@ -202,7 +202,7 @@ def main():
     print("Preparing submission...")
     
     # Create submission directory
-    submission_dir = "submission"
+    submission_dir = "b10901002"
     if os.path.exists(submission_dir):
         print(f"Removing existing {submission_dir} directory...")
         for child in Path(submission_dir).iterdir():
