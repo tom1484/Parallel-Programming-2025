@@ -9,8 +9,9 @@
 
 #include "solver/base.hpp"
 
-#define MAX_THREADS 4
-#define BATCH_SIZE 500
+#define MAX_THREADS 16
+#define BATCH_PER_THREAD 50
+#define INTERLEAVE 0
 
 namespace ParallelAStar {
 
@@ -48,6 +49,7 @@ class Solver : public BaseSolver {
 
     size_t num_threads;
     pthread_t mode_threads[2][MAX_THREADS];
+
     // Sub-containers for threads
     vector<Queue> dist_queues[2];
     vector<Queue> sub_queues[2];
@@ -68,8 +70,10 @@ class Solver : public BaseSolver {
 
     void forward_step(size_t thread_id);
     void backward_step(size_t thread_id);
+
     void run_batch(size_t thread_id, Mode mode);
-    void distribute_batch(size_t batch_size, Mode mode);
+    void distribute_batch(pair<size_t, size_t> thread_range, size_t batch_size, Mode mode);
+    void merge_batch(pair<size_t, size_t> thread_range, Mode mode);
 
     void set_solution_history_idx(HistoryIndex forward_history_idx, HistoryIndex backward_history_idx);
     void construct_solution();

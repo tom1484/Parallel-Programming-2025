@@ -107,10 +107,10 @@ void ParallelAStar::Solver::forward_step(size_t thread_id) {
             }
             pthread_mutex_unlock(&visiteds_mutex[BACKWARD]);
 
-            // if (new_state.boxes == game.targets) {
-            //     set_solution_history_idx(new_history_idx, {0, (size_t)(-1)});
-            //     return;
-            // }
+            if (new_state.boxes == game.targets) {
+                set_solution_history_idx(new_history_idx, {0, (size_t)(-1)});
+                return;
+            }
 
             sub_queue.push({curr_depth + 1, heuristic(new_state, FORWARD), new_state, new_history_idx});
         }
@@ -147,10 +147,10 @@ void ParallelAStar::Solver::backward_step(size_t thread_id) {
             }
             pthread_mutex_unlock(&visiteds_mutex[FORWARD]);
 
-            // if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
-            //     set_solution_history_idx({0, (size_t)(-1)}, new_history_idx);
-            //     return;
-            // }
+            if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
+                set_solution_history_idx({0, (size_t)(-1)}, new_history_idx);
+                return;
+            }
 
             sub_queue.push({curr_depth + 1, heuristic(new_state, BACKWARD), new_state, new_history_idx});
         }
@@ -171,33 +171,31 @@ void ParallelAStar::Solver::run_batch(size_t thread_id, Mode mode) {
     }
 }
 
-void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
+void ParallelAStar::Solver::distribute_batch(pair<size_t, size_t> thread_range, size_t batch_size, Mode mode) {
     pthread_t(*threads)[MAX_THREADS] = &mode_threads[mode];
 
     PQueue& pqueue = pqueues[mode];
-    Visited& visited = visiteds[mode];
     vector<Queue>& dist_queue = dist_queues[mode];
-    vector<Queue>& sub_queue = sub_queues[mode];
-    vector<Visited>& sub_visited = sub_visiteds[mode];
 
     bool empty = false;
     size_t depth = pqueue.top().depth;  // Should be safe as queue is not empty
     size_t distributed = 0;
 
     // Distribute nodes of the same depth to sub-queues
-    for (size_t thread_id = 0; !empty && distributed < batch_size;) {
+    for (size_t thread_id = thread_range.first; !empty && distributed < batch_size;) {
         Node node = pqueue.top();
         pqueue.pop();
         dist_queue[thread_id].push(node);  // Assuming single thread for now
         empty = pqueue.empty() || pqueue.top().depth != depth;
-        thread_id = (thread_id + 1) % num_threads;
+
         distributed++;
+        if (++thread_id == thread_range.second) thread_id = thread_range.first;
     }
 #ifdef DEBUG
     cerr << "Mode: " << mode << ", depth: " << depth << ", distributed: " << distributed << endl;
 #endif
 
-    for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
         int create_result = pthread_create(
             &(*threads)[thread_id], nullptr,
             [](void* arg) -> void* {
@@ -212,19 +210,30 @@ void ParallelAStar::Solver::distribute_batch(size_t batch_size, Mode mode) {
             exit(-1);
         }
     }
+}
 
-    for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+void ParallelAStar::Solver::merge_batch(pair<size_t, size_t> thread_range, Mode mode) {
+    pthread_t(*threads)[MAX_THREADS] = &mode_threads[mode];
+
+    PQueue& pqueue = pqueues[mode];
+    Visited& visited = visiteds[mode];
+    vector<Queue>& sub_queue = sub_queues[mode];
+    vector<Visited>& sub_visited = sub_visiteds[mode];
+
+    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
         pthread_join((*threads)[thread_id], nullptr);
     }
     if (solved) return;
 
     // Merge sub visited into main visited
-    for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
-        visited.merge(sub_visited[thread_id]);
-        sub_visited[thread_id].clear();
+    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
+        Visited& sub_v = sub_visited[thread_id];
+        visited.merge(sub_v);
+        sub_v.clear();
     }
     // Merge sub queues into main queue
-    for (Queue& sub_q : sub_queue) {
+    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
+        Queue& sub_q = sub_queue[thread_id];
         while (!sub_q.empty()) {
             pqueue.push(sub_q.front());
             sub_q.pop();
@@ -267,6 +276,7 @@ void ParallelAStar::Solver::construct_solution() {
 }
 
 ParallelAStar::Solver::Solver(const State& initial_state) : BaseSolver(initial_state) {
+    // No need to leave one thread for main thread
     num_threads = min(thread::hardware_concurrency(), (unsigned int)MAX_THREADS);
 
     pthread_mutex_init(&solution_mutex, nullptr);
@@ -338,15 +348,33 @@ vector<Direction> ParallelAStar::Solver::solve() {
         }
     }
 
+#if INTERLEAVE==1
     Visited& forward_visited = visiteds[FORWARD];
     Visited& backward_visited = visiteds[BACKWARD];
 
     while (!solved && !forward_pqueue.empty() && !backward_pqueue.empty()) {
-        if (forward_visited.size() <= backward_visited.size())
-            distribute_batch(BATCH_SIZE, FORWARD);
-        else
-            distribute_batch(BATCH_SIZE, BACKWARD);
+        if (forward_visited.size() <= backward_visited.size()) {
+            distribute_batch({0, num_threads}, num_threads * BATCH_PER_THREAD, FORWARD);
+            merge_batch({0, num_threads}, FORWARD);
+        } else {
+            distribute_batch({0, num_threads}, num_threads * BATCH_PER_THREAD, BACKWARD);
+            merge_batch({0, num_threads}, BACKWARD);
+        }
     }
+#elif INTERLEAVE==0
+    size_t n_forward_thread = num_threads / 2 + 1;
+    size_t n_backward_thread = num_threads - n_forward_thread;
+    pair<size_t, size_t> distribute_param[2] = {{0, n_forward_thread}, {n_forward_thread, num_threads}};
+
+    while (!solved && !forward_pqueue.empty() && !backward_pqueue.empty()) {
+        distribute_batch(distribute_param[FORWARD], n_forward_thread * BATCH_PER_THREAD, FORWARD);
+        distribute_batch(distribute_param[BACKWARD], n_backward_thread * BATCH_PER_THREAD, BACKWARD);
+
+        merge_batch(distribute_param[FORWARD], FORWARD);
+        merge_batch(distribute_param[BACKWARD], BACKWARD);
+    }
+#endif
+
     if (solved) {
         construct_solution();
     }
