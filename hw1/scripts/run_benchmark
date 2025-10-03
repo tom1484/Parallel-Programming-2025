@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 
 # Build the project
-echo "Building project..."
-cmake --build build/Release
-echo ""
+build=${1:-true}
+if [ "$build" = true ]; then
+    echo "Building project..."
+    cmake --build build/Release
+    echo ""
+fi
 
 echo "Running benchmark on all 25 samples..."
 echo "================================================"

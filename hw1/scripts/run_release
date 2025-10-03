@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 sample_id="$1"
-cmake --build build/Release
+build=${2:-true}
+if [ "$build" = true ]; then
+    cmake --build build/Release
+fi
 echo ""
 
 echo "Running..."

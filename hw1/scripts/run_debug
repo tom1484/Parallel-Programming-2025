@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 sample_id="$1"
-cmake --build build/Debug
+build=${2:-true}
+if [ "$build" = true ]; then
+    cmake --build build/Debug
+fi
 echo ""
 
 echo "Running..."
