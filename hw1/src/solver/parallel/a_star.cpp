@@ -1,12 +1,11 @@
 #include "solver/parallel/a_star.hpp"
 
-#include <pthread.h>
+#include <omp.h>
 
 #include <algorithm>
 #include <iostream>
 #include <optional>
 #include <queue>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -37,29 +36,29 @@ optional<InsertResult> ParallelAStar::Solver::normalize_and_insert_history(size_
     state.normalize(mode);
     if (state.dead) return nullopt;  // Dead state
 
-    pthread_mutex_t& visited_mutex = visiteds_mutex[mode];
-    pthread_mutex_t& sub_history_mutex = sub_history_mutexes[mode][thread_id];
-
-    const Visited& visited = visiteds[mode];
     Visited& sub_visited = sub_visiteds[mode][thread_id];
     History& sub_history = sub_histories[mode][thread_id];
 
     uint64_t state_hash = state.hash();
 
     // Lock visited mutex to safely read the global visited map
-    pthread_mutex_lock(&visited_mutex);
-    bool in_visited = visited.count(state_hash);
-    pthread_mutex_unlock(&visited_mutex);
+    bool in_visited;
+    {
+        lock_guard<mutex> lock(visiteds_mutex[mode]);
+        in_visited = visiteds[mode].count(state_hash);
+    }
 
     // Lock history mutex to safely access thread's sub_visited and sub_history
     if (in_visited || sub_visited.count(state_hash)) {
         // pthread_mutex_unlock(&sub_history_mutex);
         return nullopt;  // Visited state
     }
-    pthread_mutex_lock(&sub_history_mutex);
-    HistoryIndex history_idx = {thread_id, sub_history.size()};
-    sub_history.push_back(new_op);
-    pthread_mutex_unlock(&sub_history_mutex);
+    HistoryIndex history_idx;
+    {
+        lock_guard<mutex> lock(*sub_history_mutexes[mode][thread_id]);
+        history_idx = {thread_id, sub_history.size()};
+        sub_history.push_back(new_op);
+    }
 
     sub_visited[state_hash] = history_idx;  // Only insert into sub visited
 
@@ -68,14 +67,11 @@ optional<InsertResult> ParallelAStar::Solver::normalize_and_insert_history(size_
 }
 
 pair<Move, HistoryIndex> ParallelAStar::Solver::get_history_at(Mode mode, const HistoryIndex& history_idx) const {
-    pthread_mutex_t& sub_history_mutex = const_cast<pthread_mutex_t&>(sub_history_mutexes[mode][history_idx.first]);
+    mutex* sub_history_mutex = sub_history_mutexes[mode][history_idx.first].get();
+    lock_guard<mutex> lock(*sub_history_mutex);
     const History& sub_history = sub_histories[mode][history_idx.first];
 
-    pthread_mutex_lock(&sub_history_mutex);
-    pair<Move, HistoryIndex> result = sub_history[history_idx.second];
-    pthread_mutex_unlock(&sub_history_mutex);
-
-    return result;
+    return sub_history[history_idx.second];
 }
 
 void ParallelAStar::Solver::forward_step(size_t thread_id) {
@@ -98,14 +94,18 @@ void ParallelAStar::Solver::forward_step(size_t thread_id) {
             auto& [state_hash, new_history_idx] = insert_result.value();
 
             // Check if we meet the backward search
-            pthread_mutex_lock(&visiteds_mutex[BACKWARD]);
-            bool in_backward_visited = visiteds[BACKWARD].count(state_hash);
+            bool in_backward_visited;
+            HistoryIndex backward_history_idx;
+            {
+                lock_guard<mutex> lock(visiteds_mutex[BACKWARD]);
+                auto it = visiteds[BACKWARD].find(state_hash);
+                in_backward_visited = it != visiteds[BACKWARD].end();
+                if (in_backward_visited) backward_history_idx = it->second;
+            }
             if (in_backward_visited) {
-                set_solution_history_idx(new_history_idx, visiteds[BACKWARD][state_hash]);
-                pthread_mutex_unlock(&visiteds_mutex[BACKWARD]);
+                set_solution_history_idx(new_history_idx, backward_history_idx);
                 return;
             }
-            pthread_mutex_unlock(&visiteds_mutex[BACKWARD]);
 
             if (new_state.boxes == game.targets) {
                 set_solution_history_idx(new_history_idx, {0, (size_t)(-1)});
@@ -138,14 +138,18 @@ void ParallelAStar::Solver::backward_step(size_t thread_id) {
             auto& [state_hash, new_history_idx] = insert_result.value();
 
             // Check if we meet the backward search
-            pthread_mutex_lock(&visiteds_mutex[FORWARD]);
-            bool in_forward_visited = visiteds[FORWARD].count(state_hash);
+            bool in_forward_visited;
+            HistoryIndex forward_history_idx;
+            {
+                lock_guard<mutex> lock(visiteds_mutex[FORWARD]);
+                auto it = visiteds[FORWARD].find(state_hash);
+                in_forward_visited = it != visiteds[FORWARD].end();
+                if (in_forward_visited) forward_history_idx = it->second;
+            }
             if (in_forward_visited) {
-                set_solution_history_idx(visiteds[FORWARD][state_hash], new_history_idx);
-                pthread_mutex_unlock(&visiteds_mutex[FORWARD]);
+                set_solution_history_idx(forward_history_idx, new_history_idx);
                 return;
             }
-            pthread_mutex_unlock(&visiteds_mutex[FORWARD]);
 
             if (new_state.boxes == game.initial_boxes && new_state.reachable[initial_state.player.to_index()]) {
                 set_solution_history_idx({0, (size_t)(-1)}, new_history_idx);
@@ -172,20 +176,25 @@ void ParallelAStar::Solver::run_batch(size_t thread_id, Mode mode) {
 }
 
 void ParallelAStar::Solver::distribute_batch(pair<size_t, size_t> thread_range, size_t batch_size, Mode mode) {
-    pthread_t(*threads)[MAX_THREADS] = &mode_threads[mode];
-
     PQueue& pqueue = pqueues[mode];
     vector<Queue>& dist_queue = dist_queues[mode];
+
+    if (solved || pqueue.empty() || thread_range.first >= thread_range.second) return;
 
     bool empty = false;
     size_t depth = pqueue.top().depth;  // Should be safe as queue is not empty
     size_t distributed = 0;
 
+    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
+        Queue& q = dist_queue[thread_id];
+        while (!q.empty()) q.pop();
+    }
+
     // Distribute nodes of the same depth to sub-queues
     for (size_t thread_id = thread_range.first; !empty && distributed < batch_size;) {
         Node node = pqueue.top();
         pqueue.pop();
-        dist_queue[thread_id].push(node);  // Assuming single thread for now
+        dist_queue[thread_id].push(node);
         empty = pqueue.empty() || pqueue.top().depth != depth;
 
         distributed++;
@@ -195,41 +204,29 @@ void ParallelAStar::Solver::distribute_batch(pair<size_t, size_t> thread_range, 
     cerr << "Mode: " << mode << ", depth: " << depth << ", distributed: " << distributed << endl;
 #endif
 
+#pragma omp parallel for schedule(static)
     for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
-        int create_result = pthread_create(
-            &(*threads)[thread_id], nullptr,
-            [](void* arg) -> void* {
-                auto* params = static_cast<pair<ParallelAStar::Solver*, pair<size_t, Mode>*>*>(arg);
-                auto& [solver, p] = *params;
-                solver->run_batch(p->first, p->second);
-                return nullptr;
-            },
-            new pair<ParallelAStar::Solver*, pair<size_t, Mode>*>(this, new pair<size_t, Mode>{thread_id, mode}));
-        if (create_result) {
-            cerr << "Error creating thread: " << create_result << endl;
-            exit(-1);
-        }
+        if (solved) continue;
+        run_batch(thread_id, mode);
     }
 }
 
 void ParallelAStar::Solver::merge_batch(pair<size_t, size_t> thread_range, Mode mode) {
-    pthread_t(*threads)[MAX_THREADS] = &mode_threads[mode];
-
     PQueue& pqueue = pqueues[mode];
     Visited& visited = visiteds[mode];
     vector<Queue>& sub_queue = sub_queues[mode];
     vector<Visited>& sub_visited = sub_visiteds[mode];
 
-    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
-        pthread_join((*threads)[thread_id], nullptr);
-    }
-    if (solved) return;
+    if (solved || thread_range.first >= thread_range.second) return;
 
     // Merge sub visited into main visited
-    for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
-        Visited& sub_v = sub_visited[thread_id];
-        visited.merge(sub_v);
-        sub_v.clear();
+    {
+        lock_guard<mutex> lock(visiteds_mutex[mode]);
+        for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
+            Visited& sub_v = sub_visited[thread_id];
+            visited.merge(sub_v);
+            sub_v.clear();
+        }
     }
     // Merge sub queues into main queue
     for (size_t thread_id = thread_range.first; thread_id < thread_range.second; ++thread_id) {
@@ -243,14 +240,10 @@ void ParallelAStar::Solver::merge_batch(pair<size_t, size_t> thread_range, Mode 
 
 void ParallelAStar::Solver::set_solution_history_idx(HistoryIndex forward_history_idx,
                                                      HistoryIndex backward_history_idx) {
-    pthread_mutex_lock(&solution_mutex);
-    if (solved) {
-        pthread_mutex_unlock(&solution_mutex);
-        return;
-    }
+    lock_guard<mutex> lock(solution_mutex);
+    if (solved) return;
     solved = true;
     solution_history_idx = {forward_history_idx, backward_history_idx};
-    pthread_mutex_unlock(&solution_mutex);
 }
 
 void ParallelAStar::Solver::construct_solution() {
@@ -277,39 +270,24 @@ void ParallelAStar::Solver::construct_solution() {
 
 ParallelAStar::Solver::Solver(const State& initial_state) : BaseSolver(initial_state) {
     // No need to leave one thread for main thread
-    num_threads = min(thread::hardware_concurrency(), (unsigned int)MAX_THREADS);
+    int max_threads = omp_get_max_threads();
+    if (max_threads <= 0) max_threads = 1;
+    num_threads = min(static_cast<size_t>(max_threads), static_cast<size_t>(MAX_THREADS));
+    omp_set_num_threads(static_cast<int>(num_threads));
 
-    pthread_mutex_init(&solution_mutex, nullptr);
     for (size_t mode : {FORWARD, BACKWARD}) {
         dist_queues[mode].resize(num_threads);
         sub_queues[mode].resize(num_threads);
         sub_visiteds[mode].resize(num_threads);
         sub_histories[mode].resize(num_threads);
+        sub_history_mutexes[mode].clear();
+        sub_history_mutexes[mode].reserve(num_threads);
         for (size_t i = 0; i < num_threads; ++i) {
-            dist_queues[mode][i] = Queue();
-            sub_queues[mode][i] = Queue();
-            sub_visiteds[mode][i] = Visited();
-            sub_histories[mode][i] = History();
-        }
-        // Initialize mutexes
-        pthread_mutex_init(&visiteds_mutex[mode], nullptr);
-        sub_history_mutexes[mode].resize(num_threads);
-        for (size_t i = 0; i < num_threads; ++i) {
-            pthread_mutex_init(&sub_history_mutexes[mode][i], nullptr);
+            sub_history_mutexes[mode].emplace_back(make_unique<mutex>());
         }
     }
 }
-
-ParallelAStar::Solver::~Solver() {
-    // Destroy mutexes
-    pthread_mutex_destroy(&solution_mutex);
-    for (size_t mode : {FORWARD, BACKWARD}) {
-        pthread_mutex_destroy(&visiteds_mutex[mode]);
-        for (size_t i = 0; i < num_threads; ++i) {
-            pthread_mutex_destroy(&sub_history_mutexes[mode][i]);
-        }
-    }
-}
+ParallelAStar::Solver::~Solver() = default;
 
 vector<Direction> ParallelAStar::Solver::solve() {
     if (game.targets == initial_state.boxes) return {};  // Already solved
@@ -348,7 +326,7 @@ vector<Direction> ParallelAStar::Solver::solve() {
         }
     }
 
-#if INTERLEAVE==1
+#if INTERLEAVE == 1
     Visited& forward_visited = visiteds[FORWARD];
     Visited& backward_visited = visiteds[BACKWARD];
 
@@ -361,7 +339,7 @@ vector<Direction> ParallelAStar::Solver::solve() {
             merge_batch({0, num_threads}, BACKWARD);
         }
     }
-#elif INTERLEAVE==0
+#elif INTERLEAVE == 0
     size_t n_forward_thread = num_threads / 2 + 1;
     size_t n_backward_thread = num_threads - n_forward_thread;
     pair<size_t, size_t> distribute_param[2] = {{0, n_forward_thread}, {n_forward_thread, num_threads}};

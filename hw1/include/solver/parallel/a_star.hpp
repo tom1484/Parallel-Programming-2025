@@ -2,6 +2,8 @@
 #define PARALLEL_A_STAR_SOLVER_HPP
 
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <unordered_map>
@@ -48,8 +50,6 @@ class Solver : public BaseSolver {
     Visited visiteds[2];  // This may be accessed by multiple threads
 
     size_t num_threads;
-    pthread_t mode_threads[2][MAX_THREADS];
-
     // Sub-containers for threads
     vector<Queue> dist_queues[2];
     vector<Queue> sub_queues[2];
@@ -60,9 +60,9 @@ class Solver : public BaseSolver {
     pair<HistoryIndex, HistoryIndex> solution_history_idx;
 
     // Mutexes for thread safety
-    pthread_mutex_t solution_mutex;
-    pthread_mutex_t visiteds_mutex[2];
-    vector<pthread_mutex_t> sub_history_mutexes[2];
+    std::mutex solution_mutex;
+    std::mutex visiteds_mutex[2];
+    vector<std::unique_ptr<std::mutex>> sub_history_mutexes[2];
 
     optional<InsertResult> normalize_and_insert_history(size_t thread_id, State& state, Mode mode,
                                                         const pair<Move, HistoryIndex>& new_op);
