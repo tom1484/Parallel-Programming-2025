@@ -5,6 +5,7 @@
 #include <string>
 
 #include "image.hpp"
+#include "profiler.hpp"
 #include "sift.hpp"
 
 int main(int argc, char* argv[]) {
@@ -23,9 +24,16 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
 
     Image img(input_img);
-    img = img.channels == 1 ? img : rgb_to_grayscale(img);
+    {
+        PROFILE_SCOPE("rgb_to_grayscale");
+        img = img.channels == 1 ? img : rgb_to_grayscale(img);
+    }
 
-    std::vector<Keypoint> kps = find_keypoints_and_descriptors(img);
+    std::vector<Keypoint> kps;
+    {
+        PROFILE_SCOPE("SIFT_TOTAL");
+        kps = find_keypoints_and_descriptors(img);
+    }
 
     /////////////////////////////////////////////////////////////
     // The following code is for the validation
@@ -54,5 +62,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Execution time: " << duration.count() << " ms\n";
 
     std::cout << "Found " << kps.size() << " keypoints.\n";
+
+    // Print profiling report
+    Profiler::getInstance().report();
+
     return 0;
 }

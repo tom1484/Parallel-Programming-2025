@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "image.hpp"
+#include "profiler.hpp"
 
 ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min, int num_octaves, int scales_per_octave) {
+    PROFILE_FUNCTION();
     // assume initial sigma is 1.0 (after resizing) and smooth
     // the image with sigma_diff to reach requried base_sigma
     float base_sigma = sigma_min / MIN_PIX_DIST;
@@ -49,6 +51,7 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min, i
 
 // generate pyramid of difference of gaussians (DoG) images
 ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid) {
+    PROFILE_FUNCTION();
     ScaleSpacePyramid dog_pyramid = {img_pyramid.num_octaves, img_pyramid.imgs_per_octave - 1,
                                      std::vector<std::vector<Image>>(img_pyramid.num_octaves)};
     for (int i = 0; i < dog_pyramid.num_octaves; i++) {
@@ -195,6 +198,7 @@ bool refine_or_discard_keypoint(Keypoint& kp, const std::vector<Image>& octave, 
 }
 
 std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh, float edge_thresh) {
+    PROFILE_FUNCTION();
     std::vector<Keypoint> keypoints;
     for (int i = 0; i < dog_pyramid.num_octaves; i++) {
         const std::vector<Image>& octave = dog_pyramid.octaves[i];
@@ -221,6 +225,7 @@ std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float
 
 // calculate x and y derivatives for all images in the input pyramid
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid) {
+    PROFILE_FUNCTION();
     ScaleSpacePyramid grad_pyramid = {pyramid.num_octaves, pyramid.imgs_per_octave,
                                       std::vector<std::vector<Image>>(pyramid.num_octaves)};
     for (int i = 0; i < pyramid.num_octaves; i++) {
@@ -263,6 +268,7 @@ void smooth_histogram(float hist[N_BINS]) {
 
 std::vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid, float lambda_ori,
                                               float lambda_desc) {
+    PROFILE_FUNCTION();
     float pix_dist = MIN_PIX_DIST * std::pow(2, kp.octave);
     const Image& img_grad = grad_pyramid.octaves[kp.octave][kp.scale];
 
@@ -364,6 +370,7 @@ void hists_to_vec(float histograms[N_HIST][N_HIST][N_ORI], std::array<uint8_t, 1
 }
 
 void compute_keypoint_descriptor(Keypoint& kp, float theta, const ScaleSpacePyramid& grad_pyramid, float lambda_desc) {
+    PROFILE_FUNCTION();
     float pix_dist = MIN_PIX_DIST * std::pow(2, kp.octave);
     const Image& img_grad = grad_pyramid.octaves[kp.octave][kp.scale];
     float histograms[N_HIST][N_HIST][N_ORI] = {0};
@@ -415,12 +422,15 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
 
     std::vector<Keypoint> kps;
 
-    for (Keypoint& kp_tmp : tmp_kps) {
-        std::vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid, lambda_ori, lambda_desc);
-        for (float theta : orientations) {
-            Keypoint kp = kp_tmp;
-            compute_keypoint_descriptor(kp, theta, grad_pyramid, lambda_desc);
-            kps.push_back(kp);
+    {
+        PROFILE_SCOPE("orientation_and_descriptor");
+        for (Keypoint& kp_tmp : tmp_kps) {
+            std::vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid, lambda_ori, lambda_desc);
+            for (float theta : orientations) {
+                Keypoint kp = kp_tmp;
+                compute_keypoint_descriptor(kp, theta, grad_pyramid, lambda_desc);
+                kps.push_back(kp);
+            }
         }
     }
     return kps;

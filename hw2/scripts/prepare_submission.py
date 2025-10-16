@@ -16,12 +16,14 @@ SOURCES = [
     "hw2.cpp",
     "image.cpp",
     "sift.cpp",
+    "profiler.cpp",
 ]
 HEADERS = [
     "image.hpp",
     "sift.hpp",
     "stb/image_write.h",
     "stb/image.h",
+    "profiler.hpp",
 ]
 
 

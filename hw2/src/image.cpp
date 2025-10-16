@@ -7,6 +7,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "profiler.hpp"
 #include "stb/image_write.h"
 
 Image::Image(std::string file_path) {
@@ -203,6 +204,7 @@ Image grayscale_to_rgb(const Image& img) {
 
 // separable 2D gaussian blur for 1 channel image
 Image gaussian_blur(const Image& img, float sigma) {
+    PROFILE_FUNCTION();
     assert(img.channels == 1);
 
     int size = std::ceil(6 * sigma);
