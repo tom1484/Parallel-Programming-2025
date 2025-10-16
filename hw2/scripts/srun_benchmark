@@ -12,6 +12,9 @@ echo "================================================"
 # Initialize total time
 total_time=0
 
+# Handle interruptions to ensure logs are recorded
+trap 'echo "Script interrupted. Check logs for details."; exit 1' INT TERM
+
 # Iterate over all N testcases
 for i in $(seq 1 $N); do
     testcase_id=$(printf "%02d" "$i")
@@ -24,10 +27,11 @@ for i in $(seq 1 $N); do
     # Run the solver and measure time
     start_time=$(date +%s%N)
     srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
-        ./build/Release/hw2 \
         assets/testcases/"$testcase_id".jpg \
         results/"$testcase_id".jpg \
-        results/"$testcase_id".txt
+        results/"$testcase_id".txt \
+        &> results/"$testcase_id".log \
+        || echo "Command interrupted or failed" >> results/"$testcase_id".log
     end_time=$(date +%s%N)
     elapsed_time_ns=$((end_time - start_time))
     elapsed_time_seconds=$(echo "scale=6; $elapsed_time_ns / 1000000000" | bc -l)
@@ -40,8 +44,8 @@ for i in $(seq 1 $N); do
         results/"$testcase_id".txt \
         assets/goldens/"$testcase_id".txt \
         results/"$testcase_id".jpg \
-        assets/goldens/"$testcase_id".jpg | tee results/"$testcase_id".out)
-    if ! grep -q "Pass" results/"$testcase_id".out; then
+        assets/goldens/"$testcase_id".jpg > results/"$testcase_id".val.log)
+    if ! grep -q "Pass" results/"$testcase_id".val.log; then
         status="FAILED"
     else
         status="PASSED"
