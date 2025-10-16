@@ -1,3 +1,62 @@
 #!/usr/bin/env bash
+# Build the project
+echo "Building project..."
 cmake --build build/Release
-srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:30:00 ./scripts/run_benchmark false
+echo ""
+
+N=1
+
+echo "Running benchmark on all $N testcases..."
+echo "================================================"
+
+# Initialize total time
+total_time=0
+
+# Iterate over all N testcases
+for i in $(seq 1 $N); do
+    testcase_id=$(printf "%02d" "$i")
+    
+    if [[ ! -f assets/testcases/"$testcase_id".jpg ]]; then
+        echo "Testcase ${testcase_id}: File not found - skipping"
+        continue
+    fi
+    
+    # Run the solver and measure time
+    start_time=$(date +%s%N)
+    srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
+        ./build/Release/hw2 \
+        assets/testcases/"$testcase_id".jpg \
+        results/"$testcase_id".jpg \
+        results/"$testcase_id".txt
+    end_time=$(date +%s%N)
+    elapsed_time_ns=$((end_time - start_time))
+    elapsed_time_seconds=$(echo "scale=6; $elapsed_time_ns / 1000000000" | bc -l)
+    
+    # Add to total time (keep in nanoseconds for accuracy)
+    total_time=$((total_time + elapsed_time_ns))
+    
+    # Validate the result
+    validation_result=$(python3 scripts/validate.py \
+        results/"$testcase_id".txt \
+        assets/goldens/"$testcase_id".txt \
+        results/"$testcase_id".jpg \
+        assets/goldens/"$testcase_id".jpg | tee results/"$testcase_id".out)
+    if ! grep -q "Pass" results/"$testcase_id".out; then
+        status="FAILED"
+    else
+        status="PASSED"
+    fi
+    # if [[ $? -eq 0 ]]; then
+    # else
+    # fi
+    
+    # Output in the requested format
+    printf "Testcase %s: %.6f seconds - %s\n" "$testcase_id" "$elapsed_time_seconds" "$status"
+done
+
+echo "================================================"
+echo "Benchmark completed!"
+total_time_seconds=$(echo "scale=6; $total_time / 1000000000" | bc -l)
+average_time_seconds=$(echo "scale=6; $total_time / $N / 1000000000" | bc -l)
+printf "Total time: %.6f seconds\n" "$total_time_seconds"
+printf "Average time per testcase: %.6f seconds\n" "$average_time_seconds"

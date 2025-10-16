@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Build the project
-build=${1:-true}
-if [ "$build" = true ]; then
-    echo "Building project..."
-    cmake --build build/Release
-    echo ""
-fi
+echo "Building project..."
+cmake --build build/Release
+echo ""
 
 N=1
 
@@ -26,7 +23,10 @@ for i in $(seq 1 $N); do
     
     # Run the solver and measure time
     start_time=$(date +%s%N)
-    ./build/Debug/hw2 \
+    mpirun --map-by socket:PE=1 \
+        -np 2 -x OMP_NUM_THREADS=4 \
+        -x OMP_PROC_BIND=close \
+        ./build/Release/hw2 \
         assets/testcases/"$testcase_id".jpg \
         results/"$testcase_id".jpg \
         results/"$testcase_id".txt
