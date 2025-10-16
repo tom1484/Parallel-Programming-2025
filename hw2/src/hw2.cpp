@@ -8,20 +8,22 @@
 #include "profiler.hpp"
 #include "sift.hpp"
 
+using namespace std;
+
 int main(int argc, char* argv[]) {
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(NULL);
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
 
     if (argc != 4) {
-        std::cerr << "Usage: ./hw2 ./testcases/xx.jpg ./results/xx.jpg ./results/xx.txt\n";
+        cerr << "Usage: ./hw2 ./testcases/xx.jpg ./results/xx.jpg ./results/xx.txt\n";
         return 1;
     }
 
-    std::string input_img = argv[1];
-    std::string output_img = argv[2];
-    std::string output_txt = argv[3];
+    string input_img = argv[1];
+    string output_img = argv[2];
+    string output_txt = argv[3];
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = chrono::high_resolution_clock::now();
 
     Image img(input_img);
     {
@@ -29,7 +31,7 @@ int main(int argc, char* argv[]) {
         img = img.channels == 1 ? img : rgb_to_grayscale(img);
     }
 
-    std::vector<Keypoint> kps;
+    vector<Keypoint> kps;
     {
         PROFILE_SCOPE("SIFT_TOTAL");
         kps = find_keypoints_and_descriptors(img);
@@ -38,9 +40,9 @@ int main(int argc, char* argv[]) {
     /////////////////////////////////////////////////////////////
     // The following code is for the validation
     // You can not change the logic of the following code, because it is used for judge system
-    std::ofstream ofs(output_txt);
+    ofstream ofs(output_txt);
     if (!ofs) {
-        std::cerr << "Failed to open " << output_txt << " for writing.\n";
+        cerr << "Failed to open " << output_txt << " for writing.\n";
     } else {
         ofs << kps.size() << "\n";
         for (const auto& kp : kps) {
@@ -57,11 +59,11 @@ int main(int argc, char* argv[]) {
     result.save(output_img);
     /////////////////////////////////////////////////////////////
 
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> duration = end - start;
-    std::cout << "Execution time: " << duration.count() << " ms\n";
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double, milli> duration = end - start;
+    cout << "Execution time: " << duration.count() << " ms\n";
 
-    std::cout << "Found " << kps.size() << " keypoints.\n";
+    cout << "Found " << kps.size() << " keypoints.\n";
 
     // Print profiling report
     Profiler::getInstance().report();

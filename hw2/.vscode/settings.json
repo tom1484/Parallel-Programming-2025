@@ -52,6 +52,17 @@
         "variant": "cpp",
         "ctime": "cpp",
         "deque": "cpp",
-        "chrono": "cpp"
+        "chrono": "cpp",
+        "__bit_reference": "cpp",
+        "__locale": "cpp",
+        "__split_buffer": "cpp",
+        "__verbose_abort": "cpp",
+        "bitset": "cpp",
+        "complex": "cpp",
+        "cstring": "cpp",
+        "execution": "cpp",
+        "ios": "cpp",
+        "locale": "cpp",
+        "mutex": "cpp"
     }
 }

@@ -1,4 +1,3 @@
-
 #ifndef SIFT_H
 #define SIFT_H
 
@@ -8,10 +7,12 @@
 
 #include "image.hpp"
 
+using namespace std;
+
 struct ScaleSpacePyramid {
     int num_octaves;
     int imgs_per_octave;
-    std::vector<std::vector<Image>> octaves;
+    vector<vector<Image>> octaves;
 };
 
 struct Keypoint {
@@ -27,7 +28,7 @@ struct Keypoint {
     float sigma;
     float extremum_val;  // value of interpolated DoG extremum
 
-    std::array<uint8_t, 128> descriptor;
+    array<uint8_t, 128> descriptor;
 };
 
 //*******************************************
@@ -60,22 +61,22 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min = 
 
 ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid);
 
-std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh = C_DOG,
-                                     float edge_thresh = C_EDGE);
+vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh = C_DOG,
+                                float edge_thresh = C_EDGE);
 
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid);
 
-std::vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
-                                              float lambda_ori = LAMBDA_ORI, float lambda_desc = LAMBDA_DESC);
+vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
+                                         float lambda_ori = LAMBDA_ORI, float lambda_desc = LAMBDA_DESC);
 
 void compute_keypoint_descriptor(Keypoint& kp, float theta, const ScaleSpacePyramid& grad_pyramid,
                                  float lambda_desc = LAMBDA_DESC);
 
-std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_min = SIGMA_MIN,
-                                                     int num_octaves = N_OCT, int scales_per_octave = N_SPO,
-                                                     float contrast_thresh = C_DOG, float edge_thresh = C_EDGE,
-                                                     float lambda_ori = LAMBDA_ORI, float lambda_desc = LAMBDA_DESC);
+vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_min = SIGMA_MIN, int num_octaves = N_OCT,
+                                                int scales_per_octave = N_SPO, float contrast_thresh = C_DOG,
+                                                float edge_thresh = C_EDGE, float lambda_ori = LAMBDA_ORI,
+                                                float lambda_desc = LAMBDA_DESC);
 
-Image draw_keypoints(const Image& img, const std::vector<Keypoint>& kps);
+Image draw_keypoints(const Image& img, const vector<Keypoint>& kps);
 
 #endif

@@ -2,10 +2,12 @@
 #define IMAGE_H
 #include <string>
 
+using namespace std;
+
 enum Interpolation { BILINEAR, NEAREST };
 
 struct Image {
-    explicit Image(std::string file_path);
+    explicit Image(string file_path);
     Image(int w, int h, int c);
     Image();
     ~Image();
@@ -18,7 +20,7 @@ struct Image {
     int channels;
     int size;
     float* data;
-    bool save(std::string file_path);
+    bool save(string file_path);
     void set_pixel(int x, int y, int c, float val);
     float get_pixel(int x, int y, int c) const;
     void clamp();

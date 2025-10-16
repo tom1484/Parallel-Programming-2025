@@ -10,13 +10,15 @@
 #include "profiler.hpp"
 #include "stb/image_write.h"
 
-Image::Image(std::string file_path) {
+using namespace std;
+
+Image::Image(string file_path) {
     unsigned char* img_data = stbi_load(file_path.c_str(), &width, &height, &channels, 0);
     if (img_data == nullptr) {
         const char* error_msg = stbi_failure_reason();
-        std::cerr << "Failed to load image: " << file_path.c_str() << "\n";
-        std::cerr << "Error msg (stb_image): " << error_msg << "\n";
-        std::exit(1);
+        cerr << "Failed to load image: " << file_path.c_str() << "\n";
+        cerr << "Error msg (stb_image): " << error_msg << "\n";
+        exit(1);
     }
 
     size = width * height * channels;
@@ -46,14 +48,14 @@ Image::Image(const Image& other)
       channels{other.channels},
       size{other.size},
       data{new float[other.size]} {
-    // std::cout << "copy constructor\n";
+    // cout << "copy constructor\n";
     for (int i = 0; i < size; i++) data[i] = other.data[i];
 }
 
 Image& Image::operator=(const Image& other) {
     if (this != &other) {
         delete[] data;
-        // std::cout << "copy assignment\n";
+        // cout << "copy assignment\n";
         width = other.width;
         height = other.height;
         channels = other.channels;
@@ -66,13 +68,13 @@ Image& Image::operator=(const Image& other) {
 
 Image::Image(Image&& other)
     : width{other.width}, height{other.height}, channels{other.channels}, size{other.size}, data{other.data} {
-    // std::cout << "move constructor\n";
+    // cout << "move constructor\n";
     other.data = nullptr;
     other.size = 0;
 }
 
 Image& Image::operator=(Image&& other) {
-    // std::cout << "move assignment\n";
+    // cout << "move assignment\n";
     delete[] data;
     data = other.data;
     width = other.width;
@@ -86,19 +88,19 @@ Image& Image::operator=(Image&& other) {
 }
 
 // save image as jpg file
-bool Image::save(std::string file_path) {
+bool Image::save(string file_path) {
     unsigned char* out_data = new unsigned char[width * height * channels];
     for (int x = 0; x < width; x++) {
         for (int y = 0; y < height; y++) {
             for (int c = 0; c < channels; c++) {
                 int dst_idx = y * width * channels + x * channels + c;
                 int src_idx = c * height * width + y * width + x;
-                out_data[dst_idx] = std::roundf(data[src_idx] * 255.);
+                out_data[dst_idx] = roundf(data[src_idx] * 255.);
             }
         }
     }
     bool success = stbi_write_jpg(file_path.c_str(), width, height, channels, out_data, 100);
-    if (!success) std::cerr << "Failed to save image: " << file_path << "\n";
+    if (!success) cerr << "Failed to save image: " << file_path << "\n";
 
     delete[] out_data;
     return true;
@@ -106,8 +108,8 @@ bool Image::save(std::string file_path) {
 
 void Image::set_pixel(int x, int y, int c, float val) {
     if (x >= width || x < 0 || y >= height || y < 0 || c >= channels || c < 0) {
-        std::cerr << "set_pixel() error: Index out of bounds.\n";
-        std::exit(1);
+        cerr << "set_pixel() error: Index out of bounds.\n";
+        exit(1);
     }
     data[c * width * height + y * width + x] = val;
 }
@@ -158,7 +160,7 @@ Image Image::resize(int new_w, int new_h, Interpolation method) const {
 
 float bilinear_interpolate(const Image& img, float x, float y, int c) {
     float p1, p2, p3, p4, q1, q2;
-    float x_floor = std::floor(x), y_floor = std::floor(y);
+    float x_floor = floor(x), y_floor = floor(y);
     float x_ceil = x_floor + 1, y_ceil = y_floor + 1;
     p1 = img.get_pixel(x_floor, y_floor, c);
     p2 = img.get_pixel(x_ceil, y_floor, c);
@@ -170,7 +172,7 @@ float bilinear_interpolate(const Image& img, float x, float y, int c) {
 }
 
 float nn_interpolate(const Image& img, float x, float y, int c) {
-    return img.get_pixel(std::round(x), std::round(y), c);
+    return img.get_pixel(round(x), round(y), c);
 }
 
 Image rgb_to_grayscale(const Image& img) {
@@ -207,13 +209,13 @@ Image gaussian_blur(const Image& img, float sigma) {
     PROFILE_FUNCTION();
     assert(img.channels == 1);
 
-    int size = std::ceil(6 * sigma);
+    int size = ceil(6 * sigma);
     if (size % 2 == 0) size++;
     int center = size / 2;
     Image kernel(size, 1, 1);
     float sum = 0;
     for (int k = -size / 2; k <= size / 2; k++) {
-        float val = std::exp(-(k * k) / (2 * sigma * sigma));
+        float val = exp(-(k * k) / (2 * sigma * sigma));
         kernel.set_pixel(center + k, 0, 0, val);
         sum += val;
     }
@@ -252,7 +254,7 @@ void draw_point(Image& img, int x, int y, int size) {
         for (int j = y - size / 2; j <= y + size / 2; j++) {
             if (i < 0 || i >= img.width) continue;
             if (j < 0 || j >= img.height) continue;
-            if (std::abs(i - x) + std::abs(j - y) > size / 2) continue;
+            if (abs(i - x) + abs(j - y) > size / 2) continue;
             if (img.channels == 3) {
                 img.set_pixel(i, j, 0, 1.f);
                 img.set_pixel(i, j, 1, 0.f);
@@ -266,8 +268,8 @@ void draw_point(Image& img, int x, int y, int size) {
 
 void draw_line(Image& img, int x1, int y1, int x2, int y2) {
     if (x2 < x1) {
-        std::swap(x1, x2);
-        std::swap(y1, y2);
+        swap(x1, x2);
+        swap(y1, y2);
     }
     int dx = x2 - x1, dy = y2 - y1;
     for (int x = x1; x < x2; x++) {
