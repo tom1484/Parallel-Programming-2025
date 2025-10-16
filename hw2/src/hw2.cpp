@@ -1,3 +1,5 @@
+#include <mpi.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -11,11 +13,24 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
+    // Initialize MPI
+    MPI_Init(&argc, &argv);
+
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // Initialize profiler with MPI info
+    Profiler::getInstance().initializeMPI(rank, size);
+
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
 
     if (argc != 4) {
-        cerr << "Usage: ./hw2 ./testcases/xx.jpg ./results/xx.jpg ./results/xx.txt\n";
+        if (rank == 0) {
+            cerr << "Usage: ./hw2 ./testcases/xx.jpg ./results/xx.jpg ./results/xx.txt\n";
+        }
+        MPI_Finalize();
         return 1;
     }
 
@@ -61,12 +76,17 @@ int main(int argc, char* argv[]) {
 
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double, milli> duration = end - start;
-    cout << "Execution time: " << duration.count() << " ms\n";
 
-    cout << "Found " << kps.size() << " keypoints.\n";
+    if (rank == 0) {
+        cout << "Execution time: " << duration.count() << " ms\n";
+        cout << "Found " << kps.size() << " keypoints.\n";
+    }
 
-    // Print profiling report
-    Profiler::getInstance().report();
+    // Gather profiling data from all ranks and print on rank 0
+    Profiler::getInstance().gatherAndReport();
+
+    // Finalize MPI
+    MPI_Finalize();
 
     return 0;
 }

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,8 @@ struct TimingData {
     int call_count;
     int depth;
     vector<string> children;
+    double min_time_ms;
+    double max_time_ms;
 };
 
 class Profiler {
@@ -38,8 +41,12 @@ class Profiler {
     void report() const;
     void reset();
 
+    // MPI/OpenMP support
+    void initializeMPI(int rank, int size);
+    void gatherAndReport();  // Gather from all ranks and report on rank 0
+
    private:
-    Profiler() : current_depth_(0), total_program_time_ms_(0.0) {}
+    Profiler() : current_depth_(0), total_program_time_ms_(0.0), mpi_rank_(0), mpi_size_(1) {}
     ~Profiler() = default;
 
     // Prevent copying
@@ -50,6 +57,7 @@ class Profiler {
         string name;
         chrono::high_resolution_clock::time_point start_time;
         int depth;
+        int thread_id;
     };
 
     map<string, TimingData> timings_;
@@ -58,7 +66,20 @@ class Profiler {
     double total_program_time_ms_;
     string root_section_;
 
+    // MPI info
+    int mpi_rank_;
+    int mpi_size_;
+
+    // Thread safety
+    mutex timings_mutex_;
+
+    // Per-thread timer stacks (for OpenMP support)
+    map<int, vector<SectionTimer>> thread_timer_stacks_;
+    map<int, int> thread_depths_;
+
     void printSection(const string& name, double parent_time_ms, string prefix, bool last) const;
+    void printAggregatedSection(const string& name, const map<string, TimingData>& aggregated_timings,
+                                double parent_time_ms, string prefix, bool last, double total_time) const;
 };
 
 // RAII timer class for automatic scope-based timing

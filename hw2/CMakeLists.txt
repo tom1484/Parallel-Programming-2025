@@ -38,11 +38,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 # MPI
+if(APPLE)
+  target_include_directories(hw2 PRIVATE /opt/homebrew/include)
+endif()
 find_package(MPI REQUIRED)
 target_link_libraries(hw2 PRIVATE MPI::MPI_CXX)
 
 # OpenMP
 if(APPLE)
+  target_include_directories(hw2 PRIVATE /opt/homebrew/opt/libomp/include)
   # For C and C++ with Clang on macOS, use “-Xpreprocessor -fopenmp” and link “omp”
   set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp")
   set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp")
