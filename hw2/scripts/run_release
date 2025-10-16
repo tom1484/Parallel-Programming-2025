@@ -5,7 +5,10 @@ echo ""
 
 echo "Running..."
 start_time=$(date +%s%N)
-./build/Release/hw2 \
+mpirun --map-by socket:PE=1 --report-bindings \
+    -np 2 -x OMP_NUM_THREADS=4 \
+    -x OMP_PROC_BIND=close \
+    ./build/Release/hw2 \
     assets/testcases/"$sample_id".jpg \
     results/"$sample_id".jpg \
     results/"$sample_id".txt
