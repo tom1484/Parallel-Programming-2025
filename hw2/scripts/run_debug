@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-source scripts/env.sh
-
 sample_id="$1"
 build=${2:-true}
 if [ "$build" = true ]; then

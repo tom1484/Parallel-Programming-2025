@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-source scripts/env.sh
-
 # Build the project
 build=${1:-true}
 if [ "$build" = true ]; then
