@@ -1,27 +1,56 @@
 #include <mpi.h>
+#include <omp.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 
 #include "image.hpp"
+#include "mpi_utils.hpp"
 #include "profiler.hpp"
+#include "sequential/image.hpp"
+#include "sequential/sift.hpp"
 #include "sift.hpp"
 
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    // Initialize MPI
-    MPI_Init(&argc, &argv);
+    // Initialize MPI with thread support
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    if (provided < MPI_THREAD_FUNNELED) {
+        cerr << "MPI_THREAD_FUNNELED not supported\n";
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
 
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    // Set OpenMP threads (default to 6, or read from environment)
+    const char* omp_threads_env = getenv("OMP_NUM_THREADS");
+    int num_threads = omp_threads_env ? atoi(omp_threads_env) : 6;
+    omp_set_num_threads(num_threads);
+
+    if (rank == 0) {
+        cout << "Running with " << size << " MPI ranks, " << num_threads << " OpenMP threads per rank\n";
+    }
+
+    // Create Cartesian grid
+    CartesianGrid grid;
+    int px, py;
+    CartesianGrid::get_optimal_dims(size, px, py);
+    grid.init(px, py);
+
+    if (grid.rank == 0) {
+        cout << "Using " << px << " x " << py << " process grid\n";
+    }
+
     // Initialize profiler with MPI info
-    Profiler::getInstance().initializeMPI(rank, size);
+    Profiler::getInstance().initializeMPI(grid.rank, size);
 
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
@@ -40,50 +69,78 @@ int main(int argc, char* argv[]) {
 
     auto start = chrono::high_resolution_clock::now();
 
-    Image img(input_img);
-    {
-        PROFILE_SCOPE("rgb_to_grayscale");
-        img = img.channels == 1 ? img : rgb_to_grayscale(img);
+    // Load image on rank 0
+    Image img;
+    int img_width = 0, img_height = 0;
+
+    if (grid.rank == 0) {
+        img = Image(input_img);
+        {
+            PROFILE_SCOPE("rgb_to_grayscale");
+            img = img.channels == 1 ? img : rgb_to_grayscale(img);
+        }
+        img_width = img.width;
+        img_height = img.height;
     }
+
+    // Broadcast image dimensions
+    MPI_Bcast(&img_width, 1, MPI_INT, 0, grid.cart_comm);
+    MPI_Bcast(&img_height, 1, MPI_INT, 0, grid.cart_comm);
+
+    // Create base tile info
+    TileInfo base_tile(img_width, img_height, grid);
 
     vector<Keypoint> kps;
     {
         PROFILE_SCOPE("SIFT_TOTAL");
-        kps = find_keypoints_and_descriptors(img);
+        // For now, use serial version for complete functionality
+        // TODO: Implement fully parallel version
+        if (grid.rank == 0) {
+            kps = find_keypoints_and_descriptors(img);
+        }
+
+        // Alternatively, test parallel Gaussian pyramid generation:
+        // ScaleSpacePyramid gaussian_pyramid = generate_gaussian_pyramid_parallel(img, base_tile, grid);
+        // ... rest of SIFT pipeline would go here
     }
 
     /////////////////////////////////////////////////////////////
     // The following code is for the validation
     // You can not change the logic of the following code, because it is used for judge system
-    ofstream ofs(output_txt);
-    if (!ofs) {
-        cerr << "Failed to open " << output_txt << " for writing.\n";
-    } else {
-        ofs << kps.size() << "\n";
-        for (const auto& kp : kps) {
-            ofs << kp.i << " " << kp.j << " " << kp.octave << " " << kp.scale << " ";
-            for (size_t i = 0; i < kp.descriptor.size(); ++i) {
-                ofs << " " << static_cast<int>(kp.descriptor[i]);
+    if (grid.rank == 0) {
+        ofstream ofs(output_txt);
+        if (!ofs) {
+            cerr << "Failed to open " << output_txt << " for writing.\n";
+        } else {
+            ofs << kps.size() << "\n";
+            for (const auto& kp : kps) {
+                ofs << kp.i << " " << kp.j << " " << kp.octave << " " << kp.scale << " ";
+                for (size_t i = 0; i < kp.descriptor.size(); ++i) {
+                    ofs << " " << static_cast<int>(kp.descriptor[i]);
+                }
+                ofs << "\n";
             }
-            ofs << "\n";
+            ofs.close();
         }
-        ofs.close();
-    }
 
-    Image result = draw_keypoints(img, kps);
-    result.save(output_img);
+        Image result = draw_keypoints(img, kps);
+        result.save(output_img);
+    }
     /////////////////////////////////////////////////////////////
 
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double, milli> duration = end - start;
 
-    if (rank == 0) {
+    if (grid.rank == 0) {
         cout << "Execution time: " << duration.count() << " ms\n";
         cout << "Found " << kps.size() << " keypoints.\n";
     }
 
     // Gather profiling data from all ranks and print on rank 0
     Profiler::getInstance().gatherAndReport();
+
+    // Free the Cartesian communicator before MPI_Finalize
+    grid.finalize();
 
     // Finalize MPI
     MPI_Finalize();

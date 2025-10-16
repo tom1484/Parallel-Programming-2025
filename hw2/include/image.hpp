@@ -1,41 +1,11 @@
-#ifndef IMAGE_H
-#define IMAGE_H
-#include <string>
+#ifndef IMAGE_PARALLEL_HPP
+#define IMAGE_PARALLEL_HPP
 
-using namespace std;
+#include "mpi_utils.hpp"
+#include "sequential/image.hpp"
 
-enum Interpolation { BILINEAR, NEAREST };
+// Parallel version of Gaussian blur with MPI+OpenMP
+// Uses halo exchange for boundary communication and overlaps computation with communication
+Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile, const CartesianGrid& grid);
 
-struct Image {
-    explicit Image(string file_path);
-    Image(int w, int h, int c);
-    Image();
-    ~Image();
-    Image(const Image& other);
-    Image& operator=(const Image& other);
-    Image(Image&& other);
-    Image& operator=(Image&& other);
-    int width;
-    int height;
-    int channels;
-    int size;
-    float* data;
-    bool save(string file_path);
-    void set_pixel(int x, int y, int c, float val);
-    float get_pixel(int x, int y, int c) const;
-    void clamp();
-    Image resize(int new_w, int new_h, Interpolation method = BILINEAR) const;
-};
-
-float bilinear_interpolate(const Image& img, float x, float y, int c);
-float nn_interpolate(const Image& img, float x, float y, int c);
-
-Image rgb_to_grayscale(const Image& img);
-Image grayscale_to_rgb(const Image& img);
-
-Image gaussian_blur(const Image& img, float sigma);
-
-void draw_point(Image& img, int x, int y, int size = 3);
-void draw_line(Image& img, int x1, int y1, int x2, int y2);
-
-#endif
+#endif  // IMAGE_PARALLEL_HPP
