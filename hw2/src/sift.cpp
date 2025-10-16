@@ -74,13 +74,6 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         // Update tile for this octave
         tile.compute_for_octave(i, base_width, base_height, grid);
 
-        // Skip if tile is too small
-        if (tile.is_too_small(16)) {
-            // For very small octaves, could switch to serial or subset of ranks
-            // For now, just skip
-            break;
-        }
-
         pyramid.octaves[i].reserve(imgs_per_octave);
         pyramid.octaves[i].push_back(move(local_base));
 
@@ -115,8 +108,6 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                                                          const CartesianGrid& grid, float sigma_min, int num_octaves,
                                                          int scales_per_octave, float contrast_thresh,
                                                          float edge_thresh, float lambda_ori, float lambda_desc) {
-    PROFILE_FUNCTION();
-
     // Prepare input image (convert to grayscale on rank 0 if needed)
     // On non-rank-0 processes, create an empty image as placeholder
     Image input_img;
@@ -139,27 +130,15 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
 
     {
         PROFILE_SCOPE("gather_pyramid");
-        // Determine how many octaves we actually computed (might differ per rank due to tile size constraints)
-        int max_octaves = local_gaussian_pyramid.num_octaves;
-        int actual_octaves = 0;
-        for (int oct = 0; oct < max_octaves; oct++) {
-            if (!local_gaussian_pyramid.octaves[oct].empty()) {
-                actual_octaves = oct + 1;
-            }
-        }
-
-        // All ranks agree on the number of octaves to gather (minimum across all ranks)
-        int octaves_to_gather = actual_octaves;
-        MPI_Allreduce(MPI_IN_PLACE, &octaves_to_gather, 1, MPI_INT, MPI_MIN, grid.cart_comm);
-
+        // All ranks should have computed the same number of octaves now
         // Initialize the full pyramid structure on rank 0
         if (grid.rank == 0) {
-            full_gaussian_pyramid.num_octaves = octaves_to_gather;
+            full_gaussian_pyramid.num_octaves = local_gaussian_pyramid.num_octaves;
             full_gaussian_pyramid.imgs_per_octave = local_gaussian_pyramid.imgs_per_octave;
-            full_gaussian_pyramid.octaves.resize(octaves_to_gather);
+            full_gaussian_pyramid.octaves.resize(local_gaussian_pyramid.num_octaves);
         }
 
-        for (int oct = 0; oct < octaves_to_gather; oct++) {
+        for (int oct = 0; oct < local_gaussian_pyramid.num_octaves; oct++) {
             for (int scale = 0; scale < local_gaussian_pyramid.imgs_per_octave; scale++) {
                 // Get local image (should exist if we computed this many octaves)
                 const Image& local_img = local_gaussian_pyramid.octaves[oct][scale];
