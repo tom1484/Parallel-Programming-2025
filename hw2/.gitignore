@@ -2,6 +2,7 @@
 .cache/
 build/
 *.o
+validate
 
 # Operating System files
 .DS_Store

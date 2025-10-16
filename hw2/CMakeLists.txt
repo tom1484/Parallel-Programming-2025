@@ -29,11 +29,11 @@ add_executable(hw2 ${SRC})
 # Include directory equivalent to -Iinclude
 target_include_directories(hw2 PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
-# Define the validate executable
-add_executable(validate "${CMAKE_SOURCE_DIR}/src/validate.cpp")
-
-# Include directory for validate
-target_include_directories(validate PRIVATE "${CMAKE_SOURCE_DIR}/include")
+# Define the validate executable (Release build only, excluded from default "all" target)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  add_executable(validate EXCLUDE_FROM_ALL "${CMAKE_SOURCE_DIR}/src/validate.cpp")
+  target_include_directories(validate PRIVATE "${CMAKE_SOURCE_DIR}/include")
+endif()
 
 # MPI
 find_package(MPI REQUIRED)
@@ -53,5 +53,5 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_definitions(hw2 PRIVATE DEBUG)
   target_compile_options(hw2
-    PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-g -Wall -Wextra -Wpedantic>)
+    PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-g -Wall>)
 endif()
