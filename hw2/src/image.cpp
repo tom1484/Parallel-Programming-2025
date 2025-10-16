@@ -5,9 +5,9 @@
 
 #include "image.hpp"
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "stb/image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "stb/image_write.h"
 
 Image::Image(std::string file_path)
 {

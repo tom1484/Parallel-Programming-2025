@@ -1,0 +1,23 @@
+# Makefile template for hw2_sift project
+# This template will be filled by prepare_submission.py script
+
+# Compiler flags (to be filled by script)
+CXX = mpicxx
+CXX_FLAGS = {cxx_flags}
+CXX_DEFINES = {cxx_defines}
+LDFLAGS = {link_flags}
+INCLUDES = -I.
+
+# Source files
+SOURCES = {source_files}
+TARGET = hw2
+
+# Build targets
+$(TARGET): $(SOURCES)
+	$(CXX) $(CXX_FLAGS) $(CXX_DEFINES) $(INCLUDES) -o $(TARGET) $(SOURCES) $(LDFLAGS)
+
+# Clean build artifacts
+clean:
+	rm -f $(TARGET)
+
+.PHONY: all clean
