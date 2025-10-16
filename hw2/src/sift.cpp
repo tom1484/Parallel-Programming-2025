@@ -108,3 +108,112 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
 
     return pyramid;
 }
+
+// Parallel version of find_keypoints_and_descriptors
+// Uses parallel Gaussian pyramid, then gathers to rank 0 for remaining serial processing
+vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const TileInfo& base_tile,
+                                                         const CartesianGrid& grid, float sigma_min, int num_octaves,
+                                                         int scales_per_octave, float contrast_thresh,
+                                                         float edge_thresh, float lambda_ori, float lambda_desc) {
+    PROFILE_FUNCTION();
+
+    // Prepare input image (convert to grayscale on rank 0 if needed)
+    // On non-rank-0 processes, create an empty image as placeholder
+    Image input_img;
+    if (grid.rank == 0) {
+        if (img.channels == 3) {
+            PROFILE_SCOPE("rgb_to_grayscale");
+            input_img = rgb_to_grayscale(img);
+        } else {
+            input_img = img;
+        }
+    }
+
+    // Generate Gaussian pyramid in parallel (distributed across ranks)
+    ScaleSpacePyramid local_gaussian_pyramid =
+        generate_gaussian_pyramid_parallel(input_img, base_tile, grid, sigma_min, num_octaves, scales_per_octave);
+
+    // Gather the pyramid to rank 0 for serial processing
+    // For now, we'll gather each octave/scale separately
+    ScaleSpacePyramid full_gaussian_pyramid;
+
+    {
+        PROFILE_SCOPE("gather_pyramid");
+        // Determine how many octaves we actually computed (might differ per rank due to tile size constraints)
+        int max_octaves = local_gaussian_pyramid.num_octaves;
+        int actual_octaves = 0;
+        for (int oct = 0; oct < max_octaves; oct++) {
+            if (!local_gaussian_pyramid.octaves[oct].empty()) {
+                actual_octaves = oct + 1;
+            }
+        }
+
+        // All ranks agree on the number of octaves to gather (minimum across all ranks)
+        int octaves_to_gather = actual_octaves;
+        MPI_Allreduce(MPI_IN_PLACE, &octaves_to_gather, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+
+        // Initialize the full pyramid structure on rank 0
+        if (grid.rank == 0) {
+            full_gaussian_pyramid.num_octaves = octaves_to_gather;
+            full_gaussian_pyramid.imgs_per_octave = local_gaussian_pyramid.imgs_per_octave;
+            full_gaussian_pyramid.octaves.resize(octaves_to_gather);
+        }
+
+        for (int oct = 0; oct < octaves_to_gather; oct++) {
+            for (int scale = 0; scale < local_gaussian_pyramid.imgs_per_octave; scale++) {
+                // Get local image (should exist if we computed this many octaves)
+                const Image& local_img = local_gaussian_pyramid.octaves[oct][scale];
+
+                // Compute tile info for this octave
+                TileInfo tile;
+                int base_width = base_tile.global_width * 2;  // Account for initial 2x upscaling
+                int base_height = base_tile.global_height * 2;
+                tile.compute_for_octave(oct, base_width, base_height, grid);
+
+                // Prepare full image on rank 0
+                Image full_img;
+                if (grid.rank == 0) {
+                    int octave_width = base_width / (1 << oct);
+                    int octave_height = base_height / (1 << oct);
+                    full_img = Image(octave_width, octave_height, 1);
+                }
+
+                // Gather tiles - ALL ranks must participate
+                if (grid.rank == 0) {
+                    gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
+                    full_gaussian_pyramid.octaves[oct].push_back(move(full_img));
+                } else {
+                    gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
+                }
+            }
+        }
+    }
+
+    // Continue with serial SIFT pipeline on rank 0
+    vector<Keypoint> kps;
+    if (grid.rank == 0) {
+        // Generate DoG pyramid
+        ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(full_gaussian_pyramid);
+
+        // Find keypoints
+        vector<Keypoint> tmp_kps = find_keypoints(dog_pyramid, contrast_thresh, edge_thresh);
+
+        // Generate gradient pyramid
+        ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid(full_gaussian_pyramid);
+
+        // Compute orientations and descriptors
+        {
+            PROFILE_SCOPE("orientation_and_descriptor");
+            for (Keypoint& kp_tmp : tmp_kps) {
+                vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid, lambda_ori, lambda_desc);
+                for (float theta : orientations) {
+                    Keypoint kp = kp_tmp;
+                    compute_keypoint_descriptor(kp, theta, grad_pyramid, lambda_desc);
+                    kps.push_back(kp);
+                }
+            }
+        }
+    }
+
+    return kps;
+}

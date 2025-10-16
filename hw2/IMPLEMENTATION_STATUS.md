@@ -92,8 +92,31 @@ This document tracks the implementation of hybrid MPI+OpenMP parallelization for
 - Prints grid configuration on rank 0
 
 **Current execution mode:**
-- Serial SIFT on rank 0 (for validation)
-- Parallel infrastructure ready for full integration
+- **NEW:** Uses `find_keypoints_and_descriptors_parallel()` which:
+  - Generates Gaussian pyramid in parallel (distributed)
+  - Gathers pyramid to rank 0
+  - Continues with serial DoG, keypoint detection, and descriptor computation on rank 0
+- This allows testing of parallel Gaussian blur infrastructure
+
+### 5. Parallel SIFT Pipeline (`sift.cpp`)
+
+**Function:** `find_keypoints_and_descriptors_parallel()`
+
+**Implementation:**
+- Calls `generate_gaussian_pyramid_parallel()` to build distributed pyramid
+- Gathers all octave/scale images back to rank 0 using `gather_image_tiles()`
+- Continues with serial SIFT pipeline on rank 0:
+  - DoG pyramid generation
+  - Keypoint detection and refinement
+  - Gradient pyramid generation
+  - Orientation assignment
+  - Descriptor computation
+- Returns keypoints from rank 0
+
+**Purpose:**
+- Tests parallel Gaussian pyramid generation in real SIFT context
+- Validates correctness by comparing with serial baseline
+- Foundation for future full parallelization of remaining stages
 
 ### 5. Build System (`CMakeLists.txt`)
 

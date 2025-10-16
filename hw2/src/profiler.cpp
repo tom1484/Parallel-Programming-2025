@@ -95,40 +95,6 @@ void Profiler::endSection(const string& name) {
     }
 }
 
-void Profiler::printSection(const string& name, double parent_time_ms, string prefix, bool last) const {
-    auto it = timings_.find(name);
-    if (it == timings_.end()) return;
-
-    const TimingData& data = it->second;
-
-    // Calculate percentages
-    double percent_of_parent = parent_time_ms > 0 ? (data.total_time_ms / parent_time_ms * 100.0) : 100.0;
-    double percent_of_total = total_program_time_ms_ > 0 ? (data.total_time_ms / total_program_time_ms_ * 100.0) : 0.0;
-    double avg_time_ms = data.call_count > 0 ? (data.total_time_ms / data.call_count) : 0.0;
-
-    // Print indentation based on depth
-    string decorator = last ? "└─ " : "├─ ";
-
-    // clang-format off
-    cout << prefix << decorator << setw(42 - (data.depth + 1) * 3) << left << name
-              << right
-              << setw(10) << fixed << setprecision(2) << data.total_time_ms << " ms"
-              << setw(8) << fixed << setprecision(1) << percent_of_parent << "%"
-              << setw(8) << fixed << setprecision(1) << percent_of_total << "%"
-              << setw(7) << data.call_count << " calls"
-              << setw(10) << fixed << setprecision(2) << avg_time_ms << " ms/call"
-              << "\n";
-    // clang-format on
-
-    // Recursively print children
-    for (size_t i = 0; i < data.children.size(); ++i) {
-        const string& child = data.children[i];
-        bool last_child = (i == data.children.size() - 1);
-        string child_prefix = prefix + (last ? "   " : "│  ");
-        printSection(child, data.total_time_ms, child_prefix, last_child);
-    }
-}
-
 void Profiler::printAggregatedSection(const string& name, const map<string, TimingData>& aggregated_timings,
                                       double parent_time_ms, string prefix, bool last, double total_time) const {
     auto it = aggregated_timings.find(name);
@@ -143,15 +109,15 @@ void Profiler::printAggregatedSection(const string& name, const map<string, Timi
     // Print indentation based on depth
     string decorator = last ? "└─ " : "├─ ";
     // clang-format off
-    cout << prefix << decorator << setw(40 - (data.depth + 1) * 3) << left << name
-              << right
-              << setw(12) << fixed << setprecision(2) << data.total_time_ms
-              << setw(12) << fixed << setprecision(2) << data.min_time_ms
-              << setw(12) << fixed << setprecision(2) << data.max_time_ms
-              << setw(9) << fixed << setprecision(1) << percent_of_total << "%"
-              << setw(10) << data.call_count
-              << setw(14) << fixed << setprecision(2) << avg_time_ms
-              << "\n";
+    cout << prefix << decorator << setw(50 - (data.depth + 1) * 3) << left << name
+         << right
+         << setw(12) << fixed << setprecision(2) << data.total_time_ms
+         << setw(12) << fixed << setprecision(2) << data.min_time_ms
+         << setw(12) << fixed << setprecision(2) << data.max_time_ms
+         << setw(9) << fixed << setprecision(1) << percent_of_total << "%"
+         << setw(10) << data.call_count
+         << setw(14) << fixed << setprecision(2) << avg_time_ms
+         << "\n";
     // clang-format on
 
     // Recursively print children
@@ -161,48 +127,6 @@ void Profiler::printAggregatedSection(const string& name, const map<string, Timi
         string child_prefix = prefix + (last ? "   " : "│  ");
         printAggregatedSection(child, aggregated_timings, data.total_time_ms, child_prefix, last_child, total_time);
     }
-}
-
-void Profiler::report() const {
-    if (timings_.empty()) {
-        cout << "\n===== Profiling Report =====";
-        cout << "\nNo profiling data collected.";
-        cout << "\n============================\n";
-        return;
-    }
-
-    // clang-format off
-    cout << "\n";
-    cout << "========================================================================================================\n";
-    cout << "                                         PROFILING REPORT                                             \n";
-    cout << "========================================================================================================\n";
-    cout << setw(42) << left << "Section"
-              << setw(13) << right << "Time"
-              << setw(9) << "Parent%"
-              << setw(9) << "Total%"
-              << setw(13) << "Calls"
-              << setw(18) << "Avg Time"
-              << "\n";
-    cout << "--------------------------------------------------------------------------------------------------------\n";
-    // clang-format on
-
-    // Print all top-level sections (depth 0)
-    vector<string> root_sections;
-    for (const auto& entry : timings_) {
-        if (entry.second.depth == 0) {
-            root_sections.push_back(entry.first);
-        }
-    }
-    for (size_t i = 0; i < root_sections.size(); ++i) {
-        bool last = (i == root_sections.size() - 1);
-        printSection(root_sections[i], total_program_time_ms_, "", last);
-    }
-
-    // clang-format off
-    cout << "--------------------------------------------------------------------------------------------------------\n";
-    cout << "Total measured time: " << fixed << setprecision(2) << total_program_time_ms_ << " ms\n";
-    cout << "========================================================================================================\n\n";
-    // clang-format on
 }
 
 void Profiler::reset() {
@@ -339,12 +263,12 @@ void Profiler::gatherAndReport() {
         // clang-format off
         // Print aggregated report
         cout << "\n";
-        cout << "==============================================================================================================\n";
-        cout << "                                        PARALLEL PROFILING REPORT\n";
-        cout << "                                        MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
+        cout << "========================================================================================================================\n";
+        cout << "PARALLEL PROFILING REPORT\n";
+        cout << "MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
              << omp_get_max_threads() << "\n";
-        cout << "==============================================================================================================\n";
-        cout << setw(40) << left << "Section"
+        cout << "========================================================================================================================\n";
+        cout << setw(50) << left << "Section"
              << setw(12) << right << "Total(ms)"
              << setw(12) << "Min(ms)"
              << setw(12) << "Max(ms)"
@@ -352,7 +276,7 @@ void Profiler::gatherAndReport() {
              << setw(10) << "Calls"
              << setw(14) << "Avg(ms/call)"
              << "\n";
-        cout << "--------------------------------------------------------------------------------------------------------------\n";
+        cout << "------------------------------------------------------------------------------------------------------------------------\n";
         // clang-format on
 
         // Print all top-level sections
@@ -368,11 +292,11 @@ void Profiler::gatherAndReport() {
             printAggregatedSection(root_sections[i], aggregated_timings, max_total_time, "", last, max_total_time);
         }
 
-        cout << "------------------------------------------------------------------------------------------------------"
-                "--------\n";
+        // clang-format off
+        cout << "------------------------------------------------------------------------------------------------------------------------\n";
         cout << "Total measured time: " << fixed << setprecision(2) << max_total_time << " ms (max across all ranks)\n";
-        cout << "======================================================================================================"
-                "========\n\n";
+        cout << "========================================================================================================================\n\n";
+        // clang-format on
 
     } else {
         // Send data to rank 0

@@ -93,15 +93,8 @@ int main(int argc, char* argv[]) {
     vector<Keypoint> kps;
     {
         PROFILE_SCOPE("SIFT_TOTAL");
-        // For now, use serial version for complete functionality
-        // TODO: Implement fully parallel version
-        if (grid.rank == 0) {
-            kps = find_keypoints_and_descriptors(img);
-        }
-
-        // Alternatively, test parallel Gaussian pyramid generation:
-        // ScaleSpacePyramid gaussian_pyramid = generate_gaussian_pyramid_parallel(img, base_tile, grid);
-        // ... rest of SIFT pipeline would go here
+        // Use parallel version that leverages parallel Gaussian pyramid generation
+        kps = find_keypoints_and_descriptors_parallel(img, base_tile, grid);
     }
 
     /////////////////////////////////////////////////////////////
