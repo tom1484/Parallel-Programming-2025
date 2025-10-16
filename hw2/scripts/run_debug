@@ -3,10 +3,14 @@ sample_id="$1"
 cmake --build build/Debug
 echo ""
 
+PE=1
+NP=2
+THREADS=2
+
 echo "Running..."
 start_time=$(date +%s%N)
-mpirun --map-by socket:PE=1 --report-bindings \
-    -np 2 -x OMP_NUM_THREADS=4 \
+mpirun --map-by socket:PE=$PE --report-bindings \
+    -np $NP -x OMP_NUM_THREADS=$THREADS \
     -x OMP_PROC_BIND=close \
     ./build/Debug/hw2 \
     assets/testcases/"$sample_id".jpg \

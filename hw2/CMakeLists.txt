@@ -42,6 +42,16 @@ find_package(MPI REQUIRED)
 target_link_libraries(hw2 PRIVATE MPI::MPI_CXX)
 
 # OpenMP
+if(APPLE)
+  # For C and C++ with Clang on macOS, use “-Xpreprocessor -fopenmp” and link “omp”
+  set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp")
+  set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp")
+  set(OpenMP_C_LIB_NAMES "omp")
+  set(OpenMP_CXX_LIB_NAMES "omp")
+  # Optional: if you know where libomp is installed:
+  set(OpenMP_omp_LIBRARY /opt/homebrew/opt/libomp/lib/libomp.dylib)
+endif()
+
 find_package(OpenMP REQUIRED)
 target_link_libraries(hw2 PRIVATE OpenMP::OpenMP_CXX)
 

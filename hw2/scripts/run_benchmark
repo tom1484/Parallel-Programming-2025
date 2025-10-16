@@ -5,6 +5,9 @@ cmake --build build/Release
 echo ""
 
 N=1
+PE=1
+NP=2
+THREADS=2
 
 echo "Running benchmark on all $N testcases..."
 echo "================================================"
@@ -26,8 +29,8 @@ for i in $(seq 1 $N); do
     
     # Run the solver and measure time
     start_time=$(date +%s%N)
-    mpirun --map-by socket:PE=1 \
-        -np 2 -x OMP_NUM_THREADS=4 \
+    mpirun --map-by socket:PE=$PE \
+        -np $NP -x OMP_NUM_THREADS=$THREADS \
         -x OMP_PROC_BIND=close \
         ./build/Release/hw2 \
         assets/testcases/"$testcase_id".jpg \
