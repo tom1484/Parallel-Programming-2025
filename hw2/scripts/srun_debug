@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+source scripts/env.sh
+
 sample_id="$1"
 cmake --build build/Debug
 echo ""
@@ -16,7 +18,7 @@ srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
 # echo ""
 
 echo "Validation:"
-python3 scripts/validate.py \
+python scripts/validate.py \
     results/"$sample_id".txt \
     assets/goldens/"$sample_id".txt \
     results/"$sample_id".jpg \

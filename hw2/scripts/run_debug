@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+source scripts/env.sh
+
 sample_id="$1"
 cmake --build build/Debug
 echo ""
@@ -22,7 +24,7 @@ echo "Computation time: ${elapsed_time} microseconds"
 echo ""
 
 echo "Validation:"
-python3 scripts/validate.py \
+python scripts/validate.py \
     results/"$sample_id".txt \
     assets/goldens/"$sample_id".txt \
     results/"$sample_id".jpg \

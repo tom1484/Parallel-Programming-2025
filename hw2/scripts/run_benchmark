@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+source scripts/env.sh
+
 # Build the project
 echo "Building project..."
 cmake --build build/Release
@@ -46,7 +48,7 @@ for i in $(seq 1 $N); do
     total_time=$((total_time + elapsed_time_ns))
     
     # Validate the result
-    validation_result=$(python3 scripts/validate.py \
+    validation_result=$(python scripts/validate.py \
         results/"$testcase_id".txt \
         assets/goldens/"$testcase_id".txt \
         results/"$testcase_id".jpg \
