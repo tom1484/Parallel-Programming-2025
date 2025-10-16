@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 sample_id="$1"
-build=${2:-true}
-if [ "$build" = true ]; then
-    cmake --build build/Debug
-fi
+cmake --build build/Debug
 echo ""
 
 echo "Running..."
@@ -17,9 +14,9 @@ elapsed_time=$(( (end_time - start_time) / 1000 )) # Convert nanoseconds to micr
 echo "Computation time: ${elapsed_time} microseconds"
 echo ""
 
-# echo "Validation:"
-# python3 scripts/validate.py \
-#     results/"$sample_id".txt \
-#     assets/goldens/"$sample_id".txt \
-#     results/"$sample_id".jpg \
-#     assets/goldens/"$sample_id".jpg
+echo "Validation:"
+python3 scripts/validate.py \
+    results/"$sample_id".txt \
+    assets/goldens/"$sample_id".txt \
+    results/"$sample_id".jpg \
+    assets/goldens/"$sample_id".jpg

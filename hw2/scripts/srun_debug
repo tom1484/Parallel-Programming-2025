@@ -1,4 +1,23 @@
 #!/usr/bin/env bash
 sample_id="$1"
 cmake --build build/Debug
-srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 ./scripts/run_debug $sample_id false
+echo ""
+
+# echo "Running..."
+# start_time=$(date +%s%N)
+srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
+    ./build/Debug/hw2 \
+    assets/testcases/"$sample_id".jpg \
+    results/"$sample_id".jpg \
+    results/"$sample_id".txt
+# end_time=$(date +%s%N)
+# elapsed_time=$(( (end_time - start_time) / 1000 )) # Convert nanoseconds to microseconds
+# echo "Computation time: ${elapsed_time} microseconds"
+# echo ""
+
+echo "Validation:"
+python3 scripts/validate.py \
+    results/"$sample_id".txt \
+    assets/goldens/"$sample_id".txt \
+    results/"$sample_id".jpg \
+    assets/goldens/"$sample_id".jpg
