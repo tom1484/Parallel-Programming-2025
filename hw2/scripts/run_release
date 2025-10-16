@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+source scripts/env.sh
+
+sample_id="$1"
+build=${2:-true}
+if [ "$build" = true ]; then
+    cmake --build build/Release
+fi
+echo ""
+
+echo "Running..."
+start_time=$(date +%s%N)
+./build/Release/hw2 \
+    assets/testcases/"$sample_id".jpg \
+    results/"$sample_id".jpg \
+    results/"$sample_id".txt
+end_time=$(date +%s%N)
+elapsed_time=$(( (end_time - start_time) / 1000 )) # Convert nanoseconds to microseconds
+echo "Computation time: ${elapsed_time} microseconds"
+echo ""
+
+# echo "Validation:"
+# python3 scripts/validate.py \
+#     results/"$sample_id".txt \
+#     assets/goldens/"$sample_id".txt \
+#     results/"$sample_id".jpg \
+#     assets/goldens/"$sample_id".jpg

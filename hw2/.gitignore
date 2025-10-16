@@ -13,6 +13,6 @@ Thumbs.db
 *~
 
 # Project specific ignores
-answer.txt
+results/
 b10901002/
 b10901002.tar

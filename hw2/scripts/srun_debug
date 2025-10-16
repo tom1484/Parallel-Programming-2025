@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+sample_id="$1"
+cmake --build build/Debug
+srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 ./scripts/run_debug $sample_id false
