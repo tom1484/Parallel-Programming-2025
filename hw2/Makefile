@@ -2,15 +2,15 @@
 # Compiler and flags
 MPICXX = mpicxx
 MPIFLAGS = -std=c++17 -O3 -fopenmp
-INCLUDES = -I.
+INCLUDES = -Iinclude
 
 # Source files
-SOURCES = hw2.cpp sift.cpp image.cpp
-OBJECTS = $(SOURCES:.cpp=.o)
+SOURCES = src/hw2.cpp src/sift.cpp src/image.cpp
+OBJECTS = src/hw2.o src/sift.o src/image.o
 TARGET = hw2
 
 # STB image library files
-STB_HEADERS = stb_image.h stb_image_write.h
+STB_HEADERS = include/stb_image.h include/stb_image_write.h
 
 # Default target
 all: $(TARGET)
@@ -20,14 +20,14 @@ $(TARGET): $(OBJECTS)
 	$(MPICXX) $(MPIFLAGS) -o $(TARGET) $(OBJECTS)
 
 # Compile source files to object files
-hw2.o: hw2.cpp sift.hpp image.hpp
-	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c hw2.cpp
+src/hw2.o: src/hw2.cpp include/sift.hpp include/image.hpp
+	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c src/hw2.cpp -o src/hw2.o
 
-sift.o: sift.cpp sift.hpp image.hpp $(STB_HEADERS)
-	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c sift.cpp
+src/sift.o: src/sift.cpp include/sift.hpp include/image.hpp $(STB_HEADERS)
+	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c src/sift.cpp -o src/sift.o
 
-image.o: image.cpp image.hpp $(STB_HEADERS)
-	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c image.cpp
+src/image.o: src/image.cpp include/image.hpp $(STB_HEADERS)
+	$(MPICXX) $(MPIFLAGS) $(INCLUDES) -c src/image.cpp -o src/image.o
 
 # Clean up build artifacts
 clean:

@@ -1,0 +1,57 @@
+cmake_minimum_required(VERSION 3.16)
+project(hw2 CXX)
+
+# Build type (default to Release if not set)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE
+    Release
+    CACHE STRING "Build type" FORCE)
+endif()
+
+# C++ standard = C++17 (users can still override via -DCMAKE_CXX_STANDARD=...)
+set(CMAKE_CXX_STANDARD 17) # or target property CXX_STANDARD
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Output compile_commands for LSP indexing
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Specify source files
+set(SRC
+  "${CMAKE_SOURCE_DIR}/src/hw2.cpp"
+  "${CMAKE_SOURCE_DIR}/src/sift.cpp"
+  "${CMAKE_SOURCE_DIR}/src/image.cpp"
+)
+
+# Define the executable target
+add_executable(hw2 ${SRC})
+
+# Include directory equivalent to -Iinclude
+target_include_directories(hw2 PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
+# Define the validate executable
+add_executable(validate "${CMAKE_SOURCE_DIR}/src/validate.cpp")
+
+# Include directory for validate
+target_include_directories(validate PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
+# MPI
+find_package(MPI REQUIRED)
+target_link_libraries(hw2 PRIVATE MPI::MPI_CXX)
+
+# OpenMP
+find_package(OpenMP REQUIRED)
+target_link_libraries(hw2 PRIVATE OpenMP::OpenMP_CXX)
+
+# Optimize like -O3 when building Release
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  target_compile_options(hw2
+    PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-O3>)
+endif()
+
+# Turn on DEBUG flag when building Debug
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_definitions(hw2 PRIVATE DEBUG)
+  target_compile_options(hw2
+    PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-g -Wall -Wextra -Wpedantic>)
+endif()
