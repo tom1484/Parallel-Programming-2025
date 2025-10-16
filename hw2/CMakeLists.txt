@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+set(CMAKE_CXX_COMPILER mpicxx)
 project(hw2 CXX)
 
 # Build type (default to Release if not set)
