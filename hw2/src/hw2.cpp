@@ -1,15 +1,13 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <filesystem>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
 
 #include "image.hpp"
 #include "sift.hpp"
 
-
-int main(int argc, char *argv[])
-{
+int main(int argc, char* argv[]) {
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(NULL);
 
@@ -21,14 +19,13 @@ int main(int argc, char *argv[])
     std::string input_img = argv[1];
     std::string output_img = argv[2];
     std::string output_txt = argv[3];
-    
+
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     Image img(input_img);
-    img =  img.channels == 1 ? img : rgb_to_grayscale(img);
+    img = img.channels == 1 ? img : rgb_to_grayscale(img);
 
     std::vector<Keypoint> kps = find_keypoints_and_descriptors(img);
-
 
     /////////////////////////////////////////////////////////////
     // The following code is for the validation
@@ -55,7 +52,7 @@ int main(int argc, char *argv[])
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> duration = end - start;
     std::cout << "Execution time: " << duration.count() << " ms\n";
-    
+
     std::cout << "Found " << kps.size() << " keypoints.\n";
     return 0;
 }
