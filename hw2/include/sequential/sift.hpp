@@ -64,6 +64,11 @@ ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid);
 vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh = C_DOG,
                                 float edge_thresh = C_EDGE);
 
+// Helper functions for keypoint detection (exposed for parallel implementation)
+bool point_is_extremum(const vector<Image>& octave, int scale, int x, int y);
+
+bool refine_or_discard_keypoint(Keypoint& kp, const vector<Image>& octave, float contrast_thresh, float edge_thresh);
+
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid);
 
 vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,

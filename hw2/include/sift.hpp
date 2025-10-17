@@ -16,6 +16,13 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
 // This is embarrassingly parallel - no communication needed
 ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyramid);
 
+// Parallel version of keypoint detection
+// Each rank scans its local DoG tiles for extrema and refines them
+// Uses interior ownership rule: keeps keypoints 1 pixel inside tile boundary
+std::vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, const TileInfo& base_tile,
+                                              const CartesianGrid& grid, int num_octaves, float contrast_thresh = C_DOG,
+                                              float edge_thresh = C_EDGE);
+
 // Parallel version of find_keypoints_and_descriptors
 // Currently uses parallel Gaussian pyramid generation, then gathers to rank 0 for serial processing
 std::vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const TileInfo& base_tile,

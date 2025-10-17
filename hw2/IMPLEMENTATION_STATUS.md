@@ -6,7 +6,7 @@ This document tracks the implementation of hybrid MPI+OpenMP parallelization for
 **Note:** OpenMP is currently disabled in the implementation (MPI-only mode) to simplify correctness debugging of halo exchanges and boundary handling. The profiler remains enabled and will report MPI rank information; any OpenMP metrics will be absent while OMP is disabled. OpenMP pragmas will be re-enabled after MPI correctness is fully validated.
 
 **Date:** October 18, 2025  
-**Status:** Phase 2 (DoG Pyramid Parallelization) - Implementation Complete and Tested
+**Status:** Phase 3 (Keypoint Detection Parallelization) - Implementation Complete and Tested
 
 ---
 
@@ -226,7 +226,7 @@ This document tracks the implementation of hybrid MPI+OpenMP parallelization for
   - Debug: `-g -Wall` flags, `DEBUG` preprocessor definition
 - **Output:** `compile_commands.json` for LSP/IDE support
 
-### 8. Parallel DoG Pyramid (`sift.cpp`) ⭐ NEW - Phase 2
+### 8. Parallel DoG Pyramid (`sift.cpp`) - Phase 2
 
 **Function:** `generate_dog_pyramid_parallel()`
 
@@ -261,6 +261,60 @@ For each octave:
 - Called immediately after `generate_gaussian_pyramid_parallel()`
 - Both Gaussian and DoG pyramids gathered together to rank 0
 - Eliminates serial DoG computation on rank 0
+
+### 9. Parallel Keypoint Detection (`sift.cpp`) ⭐ NEW - Phase 3
+
+**Function:** `find_keypoints_parallel()`
+
+**Implementation:**
+- **Distributed extrema detection** across MPI ranks
+- Each rank scans its local DoG tiles independently
+- **Interior ownership rule:** keeps keypoints 1 pixel inside tile boundary
+- Eliminates duplicates at borders and ensures all neighbors available
+- Uses existing helper functions: `point_is_extremum()`, `refine_or_discard_keypoint()`
+
+**Algorithm:**
+```cpp
+For each octave:
+    Compute tile boundaries for this rank
+    Define interior region (1 pixel inside boundary)
+    For each scale (skip first/last):
+        For each pixel in interior region:
+            Quick contrast check (0.8 × threshold)
+            If promising:
+                3×3×3 extremum test
+                If extremum: refine and validate
+                If valid: add to local keypoints
+```
+
+**Key characteristics:**
+- **Zero communication during detection:** Pure local computation
+- **Interior ownership rule:** prevents duplicate keypoints at tile borders
+- **Handles rank-0-only octaves:** gracefully skips empty tiles
+- **Coordinate transformation:** local tile coords → global image coords
+
+**Keypoint Gathering:**
+- `MPI_Gather` collects keypoint counts from all ranks
+- `MPI_Gatherv` transfers all keypoint data to rank 0
+- Transfer using `MPI_BYTE` (Keypoint struct is POD-compatible)
+- Efficient variable-length gather
+
+**Performance (Testcase 00, 4 ranks):**
+- Detection time: ~181.39 ms total (~45.35 ms per rank average)
+- Gathering time: ~227.03 ms
+  - MPI_Gather (counts): 144.86 ms
+  - MPI_Gatherv (data): 82.04 ms
+- Load imbalance: 11.83 ms (min) to 101.98 ms (max) per rank
+- Found 2542 keypoints (expected ~2536, within 0.2%)
+
+**Integration:**
+- Called after `generate_dog_pyramid_parallel()`
+- Replaces serial `find_keypoints()` on rank 0
+- Gathered keypoints used for orientation/descriptor phases
+
+**Exposed Helper Functions** (in `include/sequential/sift.hpp`):
+- `bool point_is_extremum(const vector<Image>& octave, int scale, int x, int y)`
+- `bool refine_or_discard_keypoint(Keypoint& kp, const vector<Image>& octave, ...)`
 
 ---
 
@@ -407,9 +461,17 @@ Check logs for:
    - Performance: ~17.95 ms per rank (testcase 00, 4 ranks)
    - Details: See `PHASE2_DOG_IMPLEMENTATION.md`
 
+2. **✅ Keypoint Detection** (Phase 3 - October 18, 2025)
+   - Implemented `find_keypoints_parallel()`
+   - Interior ownership rule (1 pixel inside boundary)
+   - Zero communication during detection
+   - Performance: ~45.35 ms per rank (testcase 00, 4 ranks)
+   - Gathering: ~227 ms for MPI_Gather + MPI_Gatherv
+   - Details: See `PHASE3_KEYPOINT_DETECTION.md`
+
 **Remaining stages:**
 
-2. **Keypoint Detection** (Next: Phase 3)
+3. **On-the-fly Gradients** ⭐ (Next: Phase 4 - major optimization)
    - Parallelize extrema scanning with OpenMP
    - Implement ownership rule for boundary keypoints
    - Gather keypoints from all ranks
