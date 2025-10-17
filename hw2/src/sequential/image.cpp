@@ -124,6 +124,27 @@ bool Image::save_png(string file_path) {
     return success;
 }
 
+bool Image::save_text(string file_path) {
+    FILE* f = fopen(file_path.c_str(), "w");
+    if (!f) {
+        cerr << "Failed to open file for writing: " << file_path << "\n";
+        return false;
+    }
+    
+    // Write 2D float data (for grayscale images)
+    // Data is stored in row-major order: height x width
+    for (int i = 0; i < height; i++) {
+        string line;
+        for (int j = 0; j < width; j++) {
+            line += to_string(data[i * width + j]) + " ";
+        }
+        fprintf(f, "%s\n", line.c_str());
+    }
+    
+    fclose(f);
+    return true;
+}
+
 void Image::set_pixel(int x, int y, int c, float val) {
     if (x >= width || x < 0 || y >= height || y < 0 || c >= channels || c < 0) {
         cerr << "set_pixel() error: Index out of bounds.\n";

@@ -22,6 +22,7 @@ struct Image {
     float* data;
     bool save(string file_path);
     bool save_png(string file_path);
+    bool save_text(string file_path);
     void set_pixel(int x, int y, int c, float val);
     float get_pixel(int x, int y, int c) const;
     void clamp();
