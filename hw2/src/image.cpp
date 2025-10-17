@@ -1,10 +1,10 @@
 #include "image.hpp"
 
 #include <mpi.h>
-#include <omp.h>
 
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 #include "mpi_utils.hpp"
@@ -13,7 +13,7 @@
 
 using namespace std;
 
-// Parallel Gaussian blur with MPI+OpenMP and halo exchange
+// Parallel Gaussian blur with MPI halo exchange (OpenMP disabled for debugging)
 Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile, const CartesianGrid& grid) {
     PROFILE_FUNCTION();
     assert(img.channels == 1);
@@ -23,6 +23,13 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     if (size % 2 == 0) size++;
     int center = size / 2;
     int halo_width = center;  // Halo width = kernel radius
+    
+    // Debug: Print tile info for problematic cases
+    if (tile.global_width < 100 || tile.global_height < 100 || tile.width < 20 || tile.height < 20) {
+        printf("[Rank %d] blur sigma=%.3f, kernel_size=%d, halo=%d, tile=%dx%d (global=%dx%d)\n",
+               grid.rank, sigma, size, halo_width, tile.width, tile.height, 
+               tile.global_width, tile.global_height);
+    }
 
     vector<float> kernel(size);
     float sum = 0;
@@ -61,17 +68,23 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
                   &requests[num_requests++]);
     }
 
-    // Step 2: Pack and send top/bottom boundaries
-    // Pack top rows
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            buffers.top_send[h * width + x] = img.data[h * width + x];
+    // Step 2: Pack and send top/bottom boundaries (clamp for small tiles)
+    if (width > 0 && height > 0) {
+        // Pack top rows (clamped)
+        for (int h = 0; h < halo_width; h++) {
+            int src_row = h < height ? h : height - 1;  // clamp to [0, height-1]
+            for (int x = 0; x < width; x++) {
+                buffers.top_send[h * width + x] = img.data[src_row * width + x];
+            }
         }
-    }
-    // Pack bottom rows
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            buffers.bottom_send[h * width + x] = img.data[(height - halo_width + h) * width + x];
+        // Pack bottom rows (clamped)
+        for (int h = 0; h < halo_width; h++) {
+            int src_row = height - halo_width + h;
+            if (src_row < 0) src_row = 0;
+            if (src_row >= height) src_row = height - 1;
+            for (int x = 0; x < width; x++) {
+                buffers.bottom_send[h * width + x] = img.data[src_row * width + x];
+            }
         }
     }
 
@@ -84,9 +97,10 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
                   &requests[num_requests++]);
     }
 
-// Step 3: Compute interior rows (overlap with communication)
-#pragma omp parallel for schedule(static)
-    for (int y = halo_width; y < height - halo_width; y++) {
+    // Step 3: Compute interior rows (overlap with communication)
+    int interior_row_start = std::min(std::max(halo_width, 0), height);
+    int interior_row_end = std::max(height - halo_width, interior_row_start);
+    for (int y = interior_row_start; y < interior_row_end; y++) {
         for (int x = 0; x < width; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
@@ -102,10 +116,10 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     // Step 4: Wait for halo exchange to complete
     MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
 
-// Step 5: Compute border rows with received halos
-// Top border
-#pragma omp parallel for schedule(static)
-    for (int y = 0; y < halo_width; y++) {
+    // Step 5: Compute border rows with received halos
+    // Top border
+    int top_row_end = std::min(halo_width, height);
+    for (int y = 0; y < top_row_end; y++) {
         for (int x = 0; x < width; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
@@ -128,9 +142,9 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
         }
     }
 
-// Bottom border
-#pragma omp parallel for schedule(static)
-    for (int y = height - halo_width; y < height; y++) {
+    // Bottom border
+    int bottom_row_start = std::max(0, height - halo_width);
+    for (int y = bottom_row_start; y < height; y++) {
         for (int x = 0; x < width; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
@@ -167,11 +181,17 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
                   &requests[num_requests++]);
     }
 
-    // Pack left/right columns from tmp
-    for (int y = 0; y < height; y++) {
-        for (int h = 0; h < halo_width; h++) {
-            buffers.left_send[y * halo_width + h] = tmp.data[y * width + h];
-            buffers.right_send[y * halo_width + h] = tmp.data[y * width + (width - halo_width + h)];
+    // Pack left/right columns from tmp (clamp for small tiles)
+    if (width > 0 && height > 0) {
+        for (int y = 0; y < height; y++) {
+            for (int h = 0; h < halo_width; h++) {
+                int left_x = h < width ? h : width - 1;  // clamp to [0, width-1]
+                int right_x = width - halo_width + h;
+                if (right_x < 0) right_x = 0;
+                if (right_x >= width) right_x = width - 1;
+                buffers.left_send[y * halo_width + h] = tmp.data[y * width + left_x];
+                buffers.right_send[y * halo_width + h] = tmp.data[y * width + right_x];
+            }
         }
     }
 
@@ -184,10 +204,11 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
                   &requests[num_requests++]);
     }
 
-// Compute interior columns (overlap with communication)
-#pragma omp parallel for schedule(static)
+    // Compute interior columns (overlap with communication)
+    int interior_col_start = std::min(std::max(halo_width, 0), width);
+    int interior_col_end = std::max(width - halo_width, interior_col_start);
     for (int y = 0; y < height; y++) {
-        for (int x = halo_width; x < width - halo_width; x++) {
+        for (int x = interior_col_start; x < interior_col_end; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
                 int dx = -center + k;
@@ -201,11 +222,11 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     // Wait for halo exchange
     MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
 
-// Compute border columns
-// Left border
-#pragma omp parallel for schedule(static)
+    // Compute border columns
+    // Left border
+    int left_col_end = std::min(halo_width, width);
     for (int y = 0; y < height; y++) {
-        for (int x = 0; x < halo_width; x++) {
+        for (int x = 0; x < left_col_end; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
                 int dx = -center + k;
@@ -226,10 +247,10 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
         }
     }
 
-// Right border
-#pragma omp parallel for schedule(static)
+    // Right border
+    int right_col_start = std::max(0, width - halo_width);
     for (int y = 0; y < height; y++) {
-        for (int x = width - halo_width; x < width; x++) {
+        for (int x = right_col_start; x < width; x++) {
             float sum = 0;
             for (int k = 0; k < size; k++) {
                 int dx = -center + k;

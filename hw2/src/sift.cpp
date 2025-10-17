@@ -1,10 +1,10 @@
 #include "sift.hpp"
 
 #include <mpi.h>
-#include <omp.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 #include "image.hpp"
@@ -70,10 +70,33 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
     // Create scale space pyramid
     ScaleSpacePyramid pyramid = {num_octaves, imgs_per_octave, vector<vector<Image>>(num_octaves)};
 
+    const int min_tile_size = 20;  // Need at least 20 pixels to handle max halo ~10
+    int first_small_octave = num_octaves;  // Index of first octave that's too small
+
+    // Process octaves in parallel until tiles become too small
     for (int i = 0; i < num_octaves; i++) {
         // Update tile for this octave
         tile.compute_for_octave(i, base_width, base_height, grid);
+        
+        // Check if tiles are large enough for distributed processing
+        bool tile_large_enough = (tile.width >= min_tile_size && tile.height >= min_tile_size);
+        
+        // All ranks need to agree on processing mode (all-reduce)
+        int local_ok = tile_large_enough ? 1 : 0;
+        int global_ok = 0;
+        MPI_Allreduce(&local_ok, &global_ok, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+        
+        if (global_ok == 0) {
+            // Tiles too small - stop distributed processing
+            first_small_octave = i;
+            if (grid.rank == 0) {
+                printf("Octave %d and beyond: tiles too small (min=%dx%d), switching to rank-0-only mode\n",
+                       i, tile.width, tile.height);
+            }
+            break;
+        }
 
+        // Normal distributed processing
         pyramid.octaves[i].reserve(imgs_per_octave);
         pyramid.octaves[i].push_back(move(local_base));
 
@@ -85,16 +108,101 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         }
 
         // Prepare base image for next octave (downsample by 2x)
-        const Image& next_base_src = pyramid.octaves[i][imgs_per_octave - 3];
-        int next_width = next_base_src.width / 2;
-        int next_height = next_base_src.height / 2;
+        if (i < num_octaves - 1) {
+            const Image& next_base_src = pyramid.octaves[i][imgs_per_octave - 3];
+            
+            PROFILE_SCOPE("gather_downsample_scatter");
+            
+            // Get current octave dimensions
+            int current_width = tile.global_width;
+            int current_height = tile.global_height;
+            
+            // Gather full image to rank 0
+            Image full_img;
+            if (grid.rank == 0) {
+                full_img = Image(current_width, current_height, 1);
+                gather_image_tiles(next_base_src.data, full_img.data, current_width, current_height, tile, grid);
+                
+                // Downsample on rank 0 only
+                local_base = full_img.resize(current_width / 2, current_height / 2, Interpolation::NEAREST);
+            } else {
+                // Non-root ranks participate in gather
+                gather_image_tiles(next_base_src.data, nullptr, current_width, current_height, tile, grid);
+                // Non-root ranks don't need to scatter if next octave will be checked at loop start
+            }
+            
+            // Next iteration will check if tiles are too small and break if needed
+            // For now, scatter to all ranks (will be wasted if next octave is too small, but simpler)
+            int next_width = current_width / 2;
+            int next_height = current_height / 2;
+            tile.compute_for_octave(i + 1, base_width, base_height, grid);
+            
+            Image new_local_base(tile.width, tile.height, 1);
+            if (grid.rank == 0) {
+                scatter_image_tiles(local_base.data, new_local_base.data, 
+                                  local_base.width, local_base.height, tile, grid);
+            } else {
+                scatter_image_tiles(nullptr, new_local_base.data, 
+                                  next_width, next_height, tile, grid);
+            }
+            local_base = move(new_local_base);
+        }
+    }
 
-        // Simple nearest-neighbor downsample (local operation, no communication)
-        local_base = Image(next_width, next_height, 1);
-#pragma omp parallel for collapse(2)
-        for (int y = 0; y < next_height; y++) {
-            for (int x = 0; x < next_width; x++) {
-                local_base.data[y * next_width + x] = next_base_src.data[(y * 2) * next_base_src.width + (x * 2)];
+    // Process remaining small octaves on rank 0 only
+    if (first_small_octave < num_octaves) {
+        // Need to gather tiles from last distributed octave and prepare base for first small octave
+        if (first_small_octave > 0) {
+            // Get the image from previous octave to use as base
+            int prev_octave = first_small_octave - 1;
+            const Image& next_base_src = pyramid.octaves[prev_octave][imgs_per_octave - 3];
+            
+            // Update tile info for the previous octave to gather correctly
+            tile.compute_for_octave(prev_octave, base_width, base_height, grid);
+            
+            // Gather the full image and downsample on rank 0
+            Image full_img;
+            if (grid.rank == 0) {
+                full_img = Image(tile.global_width, tile.global_height, 1);
+                gather_image_tiles(next_base_src.data, full_img.data, 
+                                 tile.global_width, tile.global_height, tile, grid);
+                
+                // Downsample to get base for first small octave
+                local_base = full_img.resize(tile.global_width / 2, tile.global_height / 2, 
+                                            Interpolation::NEAREST);
+            } else {
+                gather_image_tiles(next_base_src.data, nullptr, 
+                                 tile.global_width, tile.global_height, tile, grid);
+            }
+        }
+        
+        // Rank 0 processes remaining octaves sequentially
+        if (grid.rank == 0) {
+            for (int i = first_small_octave; i < num_octaves; i++) {
+                pyramid.octaves[i].reserve(imgs_per_octave);
+                pyramid.octaves[i].push_back(move(local_base));
+                
+                // Apply successive blurs sequentially
+                for (int j = 1; j < sigma_vals.size(); j++) {
+                    const Image& prev_img = pyramid.octaves[i].back();
+                    Image blurred = gaussian_blur(prev_img, sigma_vals[j]);
+                    pyramid.octaves[i].push_back(move(blurred));
+                }
+                
+                // Prepare base for next octave (sequential downsample)
+                if (i < num_octaves - 1) {
+                    const Image& next_base_src = pyramid.octaves[i][imgs_per_octave - 3];
+                    local_base = next_base_src.resize(next_base_src.width / 2, next_base_src.height / 2, 
+                                                     Interpolation::NEAREST);
+                }
+            }
+        } else {
+            // Other ranks create empty pyramids for these octaves
+            for (int i = first_small_octave; i < num_octaves; i++) {
+                pyramid.octaves[i].resize(imgs_per_octave);
+                for (int j = 0; j < imgs_per_octave; j++) {
+                    pyramid.octaves[i][j] = Image(0, 0, 1);
+                }
             }
         }
     }
@@ -143,27 +251,58 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                 // Get local image (should exist if we computed this many octaves)
                 const Image& local_img = local_gaussian_pyramid.octaves[oct][scale];
 
-                // Compute tile info for this octave
-                TileInfo tile;
-                int base_width = base_tile.global_width * 2;  // Account for initial 2x upscaling
-                int base_height = base_tile.global_height * 2;
-                tile.compute_for_octave(oct, base_width, base_height, grid);
-
-                // Prepare full image on rank 0
-                Image full_img;
-                if (grid.rank == 0) {
-                    int octave_width = base_width / (1 << oct);
-                    int octave_height = base_height / (1 << oct);
-                    full_img = Image(octave_width, octave_height, 1);
-                }
-
-                // Gather tiles - ALL ranks must participate
-                if (grid.rank == 0) {
-                    gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
-                    full_gaussian_pyramid.octaves[oct].push_back(move(full_img));
+                // Check if this octave was processed in rank-0-only mode
+                // (indicated by 0×0 empty images on any rank)
+                // All ranks must agree on this to avoid deadlock
+                int local_size = local_img.width * local_img.height;
+                int min_size;
+                MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+                bool is_rank0_only = (min_size == 0);
+                
+                if (is_rank0_only) {
+                    // For rank-0-only octaves, rank 0 already has the complete image
+                    // No gathering needed; just copy from rank 0's local pyramid
+                    if (grid.rank == 0) {
+                        // Rank 0 already has the full image in local_gaussian_pyramid
+                        // Just copy it to the full pyramid
+                        full_gaussian_pyramid.octaves[oct].push_back(Image(local_img));
+                    }
+                    // Non-rank-0 processes do nothing for this octave
                 } else {
-                    gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
+                    // Normal distributed processing: gather tiles from all ranks
+                    // Compute tile info for this octave
+                    TileInfo tile;
+                    int base_width = base_tile.global_width * 2;  // Account for initial 2x upscaling
+                    int base_height = base_tile.global_height * 2;
+                    tile.compute_for_octave(oct, base_width, base_height, grid);
+
+                    // Prepare full image on rank 0
+                    Image full_img;
+                    if (grid.rank == 0) {
+                        int octave_width = base_width / (1 << oct);
+                        int octave_height = base_height / (1 << oct);
+                        full_img = Image(octave_width, octave_height, 1);
+                    }
+
+                    // Gather tiles - ALL ranks must participate
+                    if (grid.rank == 0) {
+                        gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
+                        full_gaussian_pyramid.octaves[oct].push_back(move(full_img));
+                    } else {
+                        gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
+                    }
                 }
+            }
+        }
+    }
+
+    // Save pyramid images for debugging/verification (only on rank 0)
+    if (grid.rank == 0) {
+        PROFILE_SCOPE("save_pyramid_images");
+        for (int oct = 0; oct < full_gaussian_pyramid.num_octaves; oct++) {
+            for (int scale = 0; scale < full_gaussian_pyramid.imgs_per_octave; scale++) {
+                string filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".txt";
+                full_gaussian_pyramid.octaves[oct][scale].save_text(filename);
             }
         }
     }

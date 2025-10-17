@@ -20,15 +20,18 @@ CartesianGrid::~CartesianGrid() {
 }
 
 void CartesianGrid::finalize() {
-    if (!comm_freed && cart_comm != MPI_COMM_NULL && cart_comm != MPI_COMM_WORLD) {
+    if (comm_freed) return;
+    if (cart_comm != MPI_COMM_NULL && cart_comm != MPI_COMM_WORLD) {
         MPI_Comm_free(&cart_comm);
-        comm_freed = true;
+        cart_comm = MPI_COMM_NULL;
     }
+    comm_freed = true;
 }
 
 void CartesianGrid::init(int px, int py) {
     dims[0] = px;
     dims[1] = py;
+    comm_freed = false;
     int periods[2] = {0, 0};  // Non-periodic boundaries
     int reorder = 1;          // Allow MPI to reorder ranks for better topology
 
@@ -42,6 +45,13 @@ void CartesianGrid::init(int px, int py) {
         // Get neighbor ranks (MPI_PROC_NULL for boundaries)
         MPI_Cart_shift(cart_comm, 0, 1, &neighbors[LEFT], &neighbors[RIGHT]);
         MPI_Cart_shift(cart_comm, 1, 1, &neighbors[TOP], &neighbors[BOTTOM]);
+    } else {
+        // Fallback: use world communicator (shouldn't happen with valid dims)
+        cart_comm = MPI_COMM_WORLD;
+        MPI_Comm_rank(cart_comm, &rank);
+        MPI_Comm_size(cart_comm, &size);
+        coords[0] = coords[1] = 0;
+        neighbors[TOP] = neighbors[BOTTOM] = neighbors[LEFT] = neighbors[RIGHT] = MPI_PROC_NULL;
     }
 }
 
@@ -82,17 +92,27 @@ bool TileInfo::is_too_small(int min_size) const { return width < min_size || hei
 
 // HaloBuffers implementation
 void HaloBuffers::allocate(int width, int height, int halo_width) {
-    // Top/bottom: width elements × halo_width rows
-    top_send.resize(width * halo_width);
-    top_recv.resize(width * halo_width);
-    bottom_send.resize(width * halo_width);
-    bottom_recv.resize(width * halo_width);
+    // For odd-sized images split across ranks, neighbors may have different tile sizes
+    // Allocate conservatively - use max possible size to handle any neighbor
+    // Top/bottom: use maximum possible width
+    // Left/right: use maximum possible height
+    
+    // Conservative allocation: add safety margin for odd-sized tiles
+    // In practice, difference is at most 1 pixel per direction
+    int max_width_variation = 2;  // Account for ±1 pixel difference
+    int max_height_variation = 2;
+    
+    // Top/bottom: width elements × halo_width rows (neighbors may have slightly different width)
+    top_send.resize((width + max_width_variation) * halo_width);
+    top_recv.resize((width + max_width_variation) * halo_width);
+    bottom_send.resize((width + max_width_variation) * halo_width);
+    bottom_recv.resize((width + max_width_variation) * halo_width);
 
-    // Left/right: halo_width elements × height rows
-    left_send.resize(halo_width * height);
-    left_recv.resize(halo_width * height);
-    right_send.resize(halo_width * height);
-    right_recv.resize(halo_width * height);
+    // Left/right: halo_width elements × height rows (neighbors may have slightly different height)
+    left_send.resize(halo_width * (height + max_height_variation));
+    left_recv.resize(halo_width * (height + max_height_variation));
+    right_send.resize(halo_width * (height + max_height_variation));
+    right_recv.resize(halo_width * (height + max_height_variation));
 }
 
 // Pack boundary data for halo exchange
@@ -168,8 +188,40 @@ void exchange_halos(float* data, int width, int height, int halo_width, const Ti
                     HaloBuffers& buffers, MPI_Request* requests) {
     int req_idx = 0;
 
-    // Post receives first (good MPI practice)
+    // For odd-sized images, even vertical neighbors can have different heights,
+    // and horizontal neighbors can have different widths!
+    // Example: 39-pixel height split between 2 ranks → 19 and 20 pixels
+    // We must compute neighbor dimensions to set correct MPI message sizes.
+    
+    auto compute_tile_width = [&](int px) -> int {
+        int xs = (px * tile.global_width) / grid.dims[0];
+        int xe = ((px + 1) * tile.global_width) / grid.dims[0];
+        return xe - xs;
+    };
+    
+    auto compute_tile_height = [&](int py) -> int {
+        int ys = (py * tile.global_height) / grid.dims[1];
+        int ye = ((py + 1) * tile.global_height) / grid.dims[1];
+        return ye - ys;
+    };
+    
+    // Get neighbor dimensions by computing from their coordinates
+    // Top/bottom: same px, different py (but might have different height!)
+    // Left/right: different px, same py (but might have different width!)
+    int my_px = grid.coords[0];
+    int my_py = grid.coords[1];
+    
+    int top_height = (grid.neighbors[TOP] != MPI_PROC_NULL) ? compute_tile_height(my_py - 1) : height;
+    int bottom_height = (grid.neighbors[BOTTOM] != MPI_PROC_NULL) ? compute_tile_height(my_py + 1) : height;
+    int left_width = (grid.neighbors[LEFT] != MPI_PROC_NULL) ? compute_tile_width(my_px - 1) : width;
+    int right_width = (grid.neighbors[RIGHT] != MPI_PROC_NULL) ? compute_tile_width(my_px + 1) : width;
+
+    // Post receives with correct sizes
+    // Top/bottom: neighbor has same width as me, but might have different height
+    // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[TOP] != MPI_PROC_NULL) {
+        // Top neighbor sends me their bottom rows (width × halo_width elements)
+        // Their width = my width (same x-partition)
         MPI_Irecv(buffers.top_recv.data(), width * halo_width, MPI_FLOAT, grid.neighbors[TOP], 0, grid.cart_comm,
                   &requests[req_idx++]);
     }
@@ -178,6 +230,11 @@ void exchange_halos(float* data, int width, int height, int halo_width, const Ti
                   &requests[req_idx++]);
     }
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
+        // Left neighbor sends me their right columns (halo_width × their_height elements)
+        // But wait - if they have different height, the message size is different!
+        // Actually no - they send halo_width × THEIR height, I receive the portion that overlaps with MY height
+        // This is the bug! We need to only send/recv the overlapping portion.
+        // For now, let's assume heights match (they should for same py). Let me reconsider...
         MPI_Irecv(buffers.left_recv.data(), halo_width * height, MPI_FLOAT, grid.neighbors[LEFT], 2, grid.cart_comm,
                   &requests[req_idx++]);
     }

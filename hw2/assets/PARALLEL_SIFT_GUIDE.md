@@ -1,5 +1,7 @@
 Here’s a complete design doc you can drop into your repo as docs/parallel-sift-mpi-omp.md.
 
+Temporary note (debug mode): The current codebase runs in MPI-only mode with OpenMP pragmas removed to aid correctness debugging. This document still describes the intended hybrid MPI+OpenMP design; once the MPI halo logic is verified numerically, we will re-enable OpenMP accordingly.
+
 Parallel SIFT: Hybrid MPI + OpenMP Design
 
 Target platform
