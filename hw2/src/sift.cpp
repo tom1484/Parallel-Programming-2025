@@ -30,8 +30,11 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         input_width = img.width;
         input_height = img.height;
     }
-    MPI_Bcast(&input_width, 1, MPI_INT, 0, grid.cart_comm);
-    MPI_Bcast(&input_height, 1, MPI_INT, 0, grid.cart_comm);
+    {
+        PROFILE_MPI("Bcast_input_dimensions");
+        MPI_Bcast(&input_width, 1, MPI_INT, 0, grid.cart_comm);
+        MPI_Bcast(&input_height, 1, MPI_INT, 0, grid.cart_comm);
+    }
 
     // Parallel resize: each rank computes its tile of the 2x upscaled image
     int base_width = input_width * 2;
@@ -103,41 +106,34 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         if (i < num_octaves - 1) {
             const Image& next_base_src = pyramid.octaves[i][imgs_per_octave - 3];
             
-            PROFILE_SCOPE("gather_downsample_scatter");
+            PROFILE_SCOPE("parallel_downsample");
             
-            // Get current octave dimensions
+            // Get current and next octave dimensions
             int current_width = tile.global_width;
             int current_height = tile.global_height;
+            int next_width = current_width / 2;
+            int next_height = current_height / 2;
             
-            // Gather full image to rank 0
+            // Compute tile for next octave
+            TileInfo next_tile;
+            next_tile.compute_for_octave(i + 1, base_width, base_height, grid);
+            
+            // Strategy: Gather current image to rank 0, then use resize_parallel
+            // This is simpler than trying to downsample from distributed tiles directly
             Image full_img;
             if (grid.rank == 0) {
                 full_img = Image(current_width, current_height, 1);
                 gather_image_tiles(next_base_src.data, full_img.data, current_width, current_height, tile, grid);
-                
-                // Downsample on rank 0 only
-                local_base = full_img.resize(current_width / 2, current_height / 2, Interpolation::NEAREST);
             } else {
                 // Non-root ranks participate in gather
                 gather_image_tiles(next_base_src.data, nullptr, current_width, current_height, tile, grid);
-                // Non-root ranks don't need to scatter if next octave will be checked at loop start
             }
             
-            // Next iteration will check if tiles are too small and break if needed
-            // For now, scatter to all ranks (will be wasted if next octave is too small, but simpler)
-            int next_width = current_width / 2;
-            int next_height = current_height / 2;
-            tile.compute_for_octave(i + 1, base_width, base_height, grid);
+            // Parallel downsample: each rank computes its tile of the downsampled image
+            local_base = resize_parallel(full_img, next_width, next_height, Interpolation::NEAREST, next_tile, grid);
             
-            Image new_local_base(tile.width, tile.height, 1);
-            if (grid.rank == 0) {
-                scatter_image_tiles(local_base.data, new_local_base.data, 
-                                  local_base.width, local_base.height, tile, grid);
-            } else {
-                scatter_image_tiles(nullptr, new_local_base.data, 
-                                  next_width, next_height, tile, grid);
-            }
-            local_base = move(new_local_base);
+            // Update tile for next iteration
+            tile = next_tile;
         }
     }
 
