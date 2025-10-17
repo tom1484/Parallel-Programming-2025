@@ -6,7 +6,10 @@ echo "Building project..."
 cmake --build build/Release
 echo ""
 
-N=1
+N=${1:-10}
+n_node=${2:-2}
+n_task=${3:-4}
+n_core=${4:-6}
 
 echo "Running benchmark on all $N testcases..."
 echo "================================================"
@@ -28,7 +31,9 @@ for i in $(seq 1 $N); do
     
     # Run the solver and measure time
     start_time=$(date +%s%N)
-    srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
+    srun -A ACD114118 \
+        -N "$n_node" -n "$n_task" -c "$n_core" \
+        --time=00:03:00 \
         assets/testcases/"$testcase_id".jpg \
         results/"$testcase_id".jpg \
         results/"$testcase_id".txt \

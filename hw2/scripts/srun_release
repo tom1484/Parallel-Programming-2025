@@ -5,9 +5,15 @@ sample_id="$1"
 cmake --build build/Release
 echo ""
 
+n_node=${2:-2}
+n_task=${3:-4}
+n_core=${4:-6}
+
 # echo "Running..."
 # start_time=$(date +%s%N)
-srun -A ACD114118 -N 2 -n 4 -c 4 --time=00:03:00 \
+srun -A ACD114118 \
+    -N "$n_node" -n "$n_task" -c "$n_core" \
+    --time=00:03:00 \
     ./build/Release/hw2 \
     assets/testcases/"$sample_id".jpg \
     results/"$sample_id".jpg \

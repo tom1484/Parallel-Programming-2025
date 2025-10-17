@@ -64,7 +64,9 @@
         "ios": "cpp",
         "locale": "cpp",
         "mutex": "cpp",
-        "cassert": "cpp"
+        "cassert": "cpp",
+        "typeindex": "cpp",
+        "text_encoding": "cpp"
     },
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
