@@ -273,3 +273,92 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
 
     return filtered;
 }
+
+// Helper function for coordinate mapping (same as sequential version)
+static float map_coordinate(float new_max, float current_max, float coord) {
+    float a = new_max / current_max;
+    float b = -0.5 + a * 0.5;
+    return a * coord + b;
+}
+
+// Parallel image resize with MPI distribution
+// Strategy: Broadcast source image, each rank computes its tile of the output
+// src_img: Source image (only valid on rank 0)
+// new_w, new_h: Target dimensions
+// tile: Tile info for OUTPUT image (must be pre-computed for new_w, new_h)
+// grid: Cartesian grid
+Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation method,
+                     const TileInfo& tile, const CartesianGrid& grid) {
+    PROFILE_FUNCTION();
+    
+    // Get source dimensions - need to broadcast from rank 0
+    int src_w, src_h, channels;
+    if (grid.rank == 0) {
+        src_w = src_img.width;
+        src_h = src_img.height;
+        channels = src_img.channels;
+    }
+    
+    // Broadcast source dimensions and channels (needed by all ranks)
+    MPI_Bcast(&src_w, 1, MPI_INT, 0, grid.cart_comm);
+    MPI_Bcast(&src_h, 1, MPI_INT, 0, grid.cart_comm);
+    MPI_Bcast(&channels, 1, MPI_INT, 0, grid.cart_comm);
+    
+    // Verify tile is valid
+    if (tile.global_width != new_w || tile.global_height != new_h) {
+        if (grid.rank == 0) {
+            printf("ERROR: tile dimensions (%dx%d) don't match target (%dx%d)\n",
+                   tile.global_width, tile.global_height, new_w, new_h);
+        }
+        MPI_Abort(grid.cart_comm, 1);
+    }
+    
+    // Each rank allocates its output tile
+    Image local_output(tile.width, tile.height, channels);
+    
+    // For resize, we need access to the entire source image
+    // Strategy: Broadcast full source image to all ranks
+    // (resize is not the bottleneck, and this is simpler than computing required regions)
+    
+    Image full_src;
+    if (grid.rank == 0) {
+        full_src = src_img;
+    } else {
+        full_src = Image(src_w, src_h, channels);
+    }
+    
+    // Broadcast full source image to all ranks
+    {
+        PROFILE_SCOPE("broadcast_source_image");
+        MPI_Bcast(full_src.data, src_w * src_h * channels, MPI_FLOAT, 0, grid.cart_comm);
+    }
+    
+    // Each rank computes its output tile
+    {
+        PROFILE_SCOPE("compute_resize");
+        for (int local_x = 0; local_x < tile.width; local_x++) {
+            // Convert local coordinate to global coordinate in output image
+            int global_x = tile.x_start + local_x;
+            
+            for (int local_y = 0; local_y < tile.height; local_y++) {
+                int global_y = tile.y_start + local_y;
+                
+                // Map global output coordinates to source coordinates
+                float src_x = map_coordinate(src_w, new_w, global_x);
+                float src_y = map_coordinate(src_h, new_h, global_y);
+                
+                for (int c = 0; c < channels; c++) {
+                    float value;
+                    if (method == Interpolation::BILINEAR) {
+                        value = bilinear_interpolate(full_src, src_x, src_y, c);
+                    } else {  // NEAREST
+                        value = nn_interpolate(full_src, src_x, src_y, c);
+                    }
+                    local_output.set_pixel(local_x, local_y, c, value);
+                }
+            }
+        }
+    }
+    
+    return local_output;
+}

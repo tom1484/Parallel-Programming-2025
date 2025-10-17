@@ -24,33 +24,25 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
     // Compute base sigma and initial blur (same as serial version)
     float base_sigma = sigma_min / MIN_PIX_DIST;
 
-    // For now, we'll resize on rank 0 and scatter
-    // TODO: Parallelize resize operation
-    Image base_img;
+    // Broadcast input image dimensions (needed by all ranks to compute tile)
+    int input_width, input_height;
     if (grid.rank == 0) {
-        base_img = img.resize(img.width * 2, img.height * 2, Interpolation::BILINEAR);
+        input_width = img.width;
+        input_height = img.height;
     }
+    MPI_Bcast(&input_width, 1, MPI_INT, 0, grid.cart_comm);
+    MPI_Bcast(&input_height, 1, MPI_INT, 0, grid.cart_comm);
 
-    // Broadcast dimensions
-    int base_width, base_height;
-    if (grid.rank == 0) {
-        base_width = base_img.width;
-        base_height = base_img.height;
-    }
-    MPI_Bcast(&base_width, 1, MPI_INT, 0, grid.cart_comm);
-    MPI_Bcast(&base_height, 1, MPI_INT, 0, grid.cart_comm);
-
-    // Compute tile for this octave
+    // Parallel resize: each rank computes its tile of the 2x upscaled image
+    int base_width = input_width * 2;
+    int base_height = input_height * 2;
+    
+    // Compute tile for base octave (octave 0)
     TileInfo tile;
     tile.compute_for_octave(0, base_width, base_height, grid);
-
-    // Scatter base image to all processes
-    Image local_base(tile.width, tile.height, 1);
-    if (grid.rank == 0) {
-        scatter_image_tiles(base_img.data, local_base.data, base_width, base_height, tile, grid);
-    } else {
-        scatter_image_tiles(nullptr, local_base.data, base_width, base_height, tile, grid);
-    }
+    
+    // Each rank computes its tile of the upscaled image
+    Image local_base = resize_parallel(img, base_width, base_height, Interpolation::BILINEAR, tile, grid);
 
     // Apply initial blur
     float sigma_diff = sqrt(base_sigma * base_sigma - 1.0f);
@@ -297,15 +289,15 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     }
 
     // Save pyramid images for debugging/verification (only on rank 0)
-    if (grid.rank == 0) {
-        PROFILE_SCOPE("save_pyramid_images");
-        for (int oct = 0; oct < full_gaussian_pyramid.num_octaves; oct++) {
-            for (int scale = 0; scale < full_gaussian_pyramid.imgs_per_octave; scale++) {
-                string filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".txt";
-                full_gaussian_pyramid.octaves[oct][scale].save_text(filename);
-            }
-        }
-    }
+    // if (grid.rank == 0) {
+    //     PROFILE_SCOPE("save_pyramid_images");
+    //     for (int oct = 0; oct < full_gaussian_pyramid.num_octaves; oct++) {
+    //         for (int scale = 0; scale < full_gaussian_pyramid.imgs_per_octave; scale++) {
+    //             string filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".txt";
+    //             full_gaussian_pyramid.octaves[oct][scale].save_text(filename);
+    //         }
+    //     }
+    // }
 
     // Continue with serial SIFT pipeline on rank 0
     vector<Keypoint> kps;
