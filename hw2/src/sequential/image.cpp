@@ -106,6 +106,24 @@ bool Image::save(string file_path) {
     return true;
 }
 
+bool Image::save_png(string file_path) {
+    unsigned char* out_data = new unsigned char[width * height * channels];
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int c = 0; c < channels; c++) {
+                int dst_idx = y * width * channels + x * channels + c;
+                int src_idx = c * height * width + y * width + x;
+                out_data[dst_idx] = roundf(data[src_idx] * 255.);
+            }
+        }
+    }
+    bool success = stbi_write_png(file_path.c_str(), width, height, channels, out_data, width * channels);
+    if (!success) cerr << "Failed to save image: " << file_path << "\n";
+
+    delete[] out_data;
+    return success;
+}
+
 void Image::set_pixel(int x, int y, int c, float val) {
     if (x >= width || x < 0 || y >= height || y < 0 || c >= channels || c < 0) {
         cerr << "set_pixel() error: Index out of bounds.\n";
