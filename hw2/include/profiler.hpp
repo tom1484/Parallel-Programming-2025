@@ -15,9 +15,11 @@ using namespace std;
 #ifdef PROFILING_ENABLED
 #define PROFILE_FUNCTION() ScopedTimer _timer(__FUNCTION__)
 #define PROFILE_SCOPE(name) ScopedTimer _timer(name)
+#define PROFILE_MPI(name) ScopedTimer _mpi_timer(string("MPI_") + name)
 #else
 #define PROFILE_FUNCTION()
 #define PROFILE_SCOPE(name)
+#define PROFILE_MPI(name)
 #endif
 
 // Column widths
@@ -27,9 +29,12 @@ struct TimingData {
     double total_time_ms;
     int call_count;
     int depth;
-    vector<string> children;
+    vector<string> children;  // Call paths of children
     double min_time_ms;
     double max_time_ms;
+    bool is_mpi;          // Flag to identify MPI communication sections
+    string display_name;  // Simple name for display (without path)
+    string parent_path;   // Full path of parent for hierarchy
 };
 
 class Profiler {
@@ -45,6 +50,9 @@ class Profiler {
     void initializeMPI(int rank, int size);
     void gatherAndReport();  // Gather from all ranks and report on rank 0
 
+    // Get total MPI communication time
+    double getTotalMPITime() const;
+
    private:
     Profiler() : current_depth_(0), total_program_time_ms_(0.0), mpi_rank_(0), mpi_size_(1) {}
     ~Profiler() = default;
@@ -54,17 +62,18 @@ class Profiler {
     Profiler& operator=(const Profiler&) = delete;
 
     struct SectionTimer {
-        string name;
+        string name;       // Display name
+        string call_path;  // Full call path for unique identification
         chrono::high_resolution_clock::time_point start_time;
         int depth;
         int thread_id;
     };
 
-    map<string, TimingData> timings_;
+    map<string, TimingData> timings_;  // Key is call_path, not just name
     vector<SectionTimer> timer_stack_;
     int current_depth_;
     double total_program_time_ms_;
-    string root_section_;
+    string root_section_;  // Call path of root section
 
     // MPI info
     int mpi_rank_;
@@ -77,7 +86,6 @@ class Profiler {
     map<int, vector<SectionTimer>> thread_timer_stacks_;
     map<int, int> thread_depths_;
 
-    void printSection(const string& name, double parent_time_ms, string prefix, bool last) const;
     void printAggregatedSection(const string& name, const map<string, TimingData>& aggregated_timings,
                                 double parent_time_ms, string prefix, bool last, double total_time) const;
 };

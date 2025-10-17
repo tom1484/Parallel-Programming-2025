@@ -29,28 +29,40 @@ void Profiler::startSection(const string& name) {
     auto& timer_stack = thread_timer_stacks_[thread_id];
     int& current_depth = thread_depths_[thread_id];
 
+    // Build call path: parent_path/name
+    string call_path;
+    string parent_path;
+    if (!timer_stack.empty()) {
+        parent_path = timer_stack.back().call_path;
+        call_path = parent_path + "/" + name;
+    } else {
+        call_path = name;  // Root level
+    }
+
     SectionTimer timer;
     timer.name = name;
+    timer.call_path = call_path;
     timer.start_time = chrono::high_resolution_clock::now();
     timer.depth = current_depth;
     timer.thread_id = thread_id;
 
-    // Initialize timing data if this is the first call
-    if (timings_.find(name) == timings_.end()) {
-        timings_[name] = {0.0, 0, current_depth, {}, 1e9, 0.0};
+    // Initialize timing data if this is the first call to this path
+    if (timings_.find(call_path) == timings_.end()) {
+        bool is_mpi = (name.find("MPI_") == 0);  // Check if name starts with "MPI_"
+        timings_[call_path] = {0.0, 0, current_depth, {}, 1e9, 0.0, is_mpi, name, parent_path};
     }
 
-    // Track parent-child relationships
+    // Track parent-child relationships using call paths
     if (!timer_stack.empty()) {
-        const string& parent_name = timer_stack.back().name;
-        auto& parent_children = timings_[parent_name].children;
-        if (find(parent_children.begin(), parent_children.end(), name) == parent_children.end()) {
-            parent_children.push_back(name);
+        const string& parent_call_path = timer_stack.back().call_path;
+        auto& parent_children = timings_[parent_call_path].children;
+        if (find(parent_children.begin(), parent_children.end(), call_path) == parent_children.end()) {
+            parent_children.push_back(call_path);
         }
     } else {
         // This is a root section
         if (root_section_.empty()) {
-            root_section_ = name;
+            root_section_ = call_path;
         }
     }
 
@@ -81,10 +93,11 @@ void Profiler::endSection(const string& name) {
     auto duration = chrono::duration_cast<chrono::microseconds>(end_time - timer.start_time);
     double duration_ms = duration.count() / 1000.0;
 
-    timings_[name].total_time_ms += duration_ms;
-    timings_[name].call_count++;
-    timings_[name].min_time_ms = min(timings_[name].min_time_ms, duration_ms);
-    timings_[name].max_time_ms = max(timings_[name].max_time_ms, duration_ms);
+    const string& call_path = timer.call_path;
+    timings_[call_path].total_time_ms += duration_ms;
+    timings_[call_path].call_count++;
+    timings_[call_path].min_time_ms = min(timings_[call_path].min_time_ms, duration_ms);
+    timings_[call_path].max_time_ms = max(timings_[call_path].max_time_ms, duration_ms);
 
     timer_stack.pop_back();
     current_depth--;
@@ -95,9 +108,9 @@ void Profiler::endSection(const string& name) {
     }
 }
 
-void Profiler::printAggregatedSection(const string& name, const map<string, TimingData>& aggregated_timings,
+void Profiler::printAggregatedSection(const string& call_path, const map<string, TimingData>& aggregated_timings,
                                       double parent_time_ms, string prefix, bool last, double total_time) const {
-    auto it = aggregated_timings.find(name);
+    auto it = aggregated_timings.find(call_path);
     if (it == aggregated_timings.end()) return;
 
     const TimingData& data = it->second;
@@ -107,9 +120,11 @@ void Profiler::printAggregatedSection(const string& name, const map<string, Timi
     double avg_time_ms = data.call_count > 0 ? (data.total_time_ms / data.call_count) : 0.0;
 
     // Print indentation based on depth
-    string decorator = last ? "└─ " : "├─ ";
+    string local_prefix = prefix + (last ? "└─ " : "├─ ");
     // clang-format off
-    cout << prefix << decorator << setw(50 - (data.depth + 1) * 3) << left << name
+    cout << left
+         << local_prefix
+         << setw(50 - (data.depth + 1) * 3) << data.display_name
          << right
          << setw(12) << fixed << setprecision(2) << data.total_time_ms
          << setw(12) << fixed << setprecision(2) << data.min_time_ms
@@ -139,6 +154,16 @@ void Profiler::reset() {
     root_section_.clear();
 }
 
+double Profiler::getTotalMPITime() const {
+    double total_mpi_time = 0.0;
+    for (const auto& entry : timings_) {
+        if (entry.second.is_mpi) {
+            total_mpi_time += entry.second.total_time_ms;
+        }
+    }
+    return total_mpi_time;
+}
+
 void Profiler::gatherAndReport() {
     // Serialize local timing data
     vector<string> section_names;
@@ -150,8 +175,13 @@ void Profiler::gatherAndReport() {
     vector<int> children_counts;
     vector<string> all_children;
 
+    vector<string> display_names;
+    vector<string> parent_paths;
+
     for (const auto& entry : timings_) {
-        section_names.push_back(entry.first);
+        section_names.push_back(entry.first);  // call_path
+        display_names.push_back(entry.second.display_name);
+        parent_paths.push_back(entry.second.parent_path);
         total_times.push_back(entry.second.total_time_ms);
         call_counts.push_back(entry.second.call_count);
         depths.push_back(entry.second.depth);
@@ -179,9 +209,13 @@ void Profiler::gatherAndReport() {
 
         // Add rank 0's data
         for (size_t i = 0; i < section_names.size(); ++i) {
-            const string& name = section_names[i];
-            aggregated_timings[name] = {total_times[i], call_counts[i], depths[i], {}, min_times[i], max_times[i]};
-            rank_times[name].push_back(total_times[i]);
+            const string& call_path = section_names[i];
+            const string& display_name = display_names[i];
+            const string& parent_path = parent_paths[i];
+            bool is_mpi = (display_name.find("MPI_") == 0);
+            aggregated_timings[call_path] = {total_times[i], call_counts[i], depths[i],    {},         min_times[i],
+                                             max_times[i],   is_mpi,         display_name, parent_path};
+            rank_times[call_path].push_back(total_times[i]);
 
             // Restore children
             int child_offset = 0;
@@ -189,7 +223,7 @@ void Profiler::gatherAndReport() {
                 child_offset += children_counts[j];
             }
             for (int j = 0; j < children_counts[i]; ++j) {
-                aggregated_timings[name].children.push_back(all_children[child_offset + j]);
+                aggregated_timings[call_path].children.push_back(all_children[child_offset + j]);
             }
         }
 
@@ -211,12 +245,26 @@ void Profiler::gatherAndReport() {
             }
 
             for (int i = 0; i < remote_section_count; ++i) {
-                // Receive section name
+                // Receive call_path
                 int name_len;
                 MPI_Recv(&name_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 vector<char> name_buf(name_len);
                 MPI_Recv(name_buf.data(), name_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                string name(name_buf.begin(), name_buf.end());
+                string call_path(name_buf.begin(), name_buf.end());
+
+                // Receive display_name
+                int display_len;
+                MPI_Recv(&display_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                vector<char> display_buf(display_len);
+                MPI_Recv(display_buf.data(), display_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                string display_name(display_buf.begin(), display_buf.end());
+
+                // Receive parent_path
+                int parent_len;
+                MPI_Recv(&parent_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                vector<char> parent_buf(parent_len);
+                MPI_Recv(parent_buf.data(), parent_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                string parent_path(parent_buf.begin(), parent_buf.end());
 
                 // Receive timing data
                 double total_time, min_time, max_time;
@@ -239,24 +287,29 @@ void Profiler::gatherAndReport() {
                 }
 
                 // Aggregate the data
-                if (aggregated_timings.find(name) == aggregated_timings.end()) {
-                    aggregated_timings[name] = {total_time, call_count, depth, children, min_time, max_time};
+                bool is_mpi = (display_name.find("MPI_") == 0);
+                if (aggregated_timings.find(call_path) == aggregated_timings.end()) {
+                    aggregated_timings[call_path] = {total_time, call_count, depth,        children,   min_time,
+                                                     max_time,   is_mpi,     display_name, parent_path};
                 } else {
-                    aggregated_timings[name].total_time_ms += total_time;
-                    aggregated_timings[name].call_count += call_count;
-                    aggregated_timings[name].min_time_ms = min(aggregated_timings[name].min_time_ms, min_time);
-                    aggregated_timings[name].max_time_ms = max(aggregated_timings[name].max_time_ms, max_time);
+                    aggregated_timings[call_path].total_time_ms += total_time;
+                    aggregated_timings[call_path].call_count += call_count;
+                    aggregated_timings[call_path].min_time_ms =
+                        min(aggregated_timings[call_path].min_time_ms, min_time);
+                    aggregated_timings[call_path].max_time_ms =
+                        max(aggregated_timings[call_path].max_time_ms, max_time);
 
                     // Merge children lists
                     for (const auto& child : children) {
-                        if (find(aggregated_timings[name].children.begin(), aggregated_timings[name].children.end(),
-                                 child) == aggregated_timings[name].children.end()) {
-                            aggregated_timings[name].children.push_back(child);
+                        if (find(aggregated_timings[call_path].children.begin(),
+                                 aggregated_timings[call_path].children.end(),
+                                 child) == aggregated_timings[call_path].children.end()) {
+                            aggregated_timings[call_path].children.push_back(child);
                         }
                     }
                 }
 
-                rank_times[name].push_back(total_time);
+                rank_times[call_path].push_back(total_time);
             }
         }
 
@@ -268,8 +321,10 @@ void Profiler::gatherAndReport() {
         cout << "MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
              << omp_get_max_threads() << "\n";
         cout << "========================================================================================================================\n";
-        cout << setw(50) << left << "Section"
-             << setw(12) << right << "Total(ms)"
+        cout << left
+             << setw(50) << "Section"
+             << right
+             << setw(12) << "Total(ms)"
              << setw(12) << "Min(ms)"
              << setw(12) << "Max(ms)"
              << setw(10) << "Total%"
@@ -292,9 +347,20 @@ void Profiler::gatherAndReport() {
             printAggregatedSection(root_sections[i], aggregated_timings, max_total_time, "", last, max_total_time);
         }
 
+        // Calculate total MPI communication time
+        double total_mpi_time = 0.0;
+        for (const auto& entry : aggregated_timings) {
+            if (entry.second.is_mpi) {
+                total_mpi_time += entry.second.total_time_ms;
+            }
+        }
+        double mpi_percent = max_total_time > 0 ? (total_mpi_time / max_total_time * 100.0) : 0.0;
+
         // clang-format off
         cout << "------------------------------------------------------------------------------------------------------------------------\n";
         cout << "Total measured time: " << fixed << setprecision(2) << max_total_time << " ms (max across all ranks)\n";
+        cout << "Total MPI communication time: " << fixed << setprecision(2) << total_mpi_time 
+             << " ms (" << fixed << setprecision(1) << mpi_percent << "% of total)\n";
         cout << "========================================================================================================================\n\n";
         // clang-format on
 
@@ -310,10 +376,24 @@ void Profiler::gatherAndReport() {
         }
 
         for (size_t i = 0; i < section_names.size(); ++i) {
-            const string& name = section_names[i];
-            int name_len = name.size();
+            const string& call_path = section_names[i];
+            const string& display_name = display_names[i];
+            const string& parent_path = parent_paths[i];
+
+            // Send call_path
+            int name_len = call_path.size();
             MPI_Send(&name_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(name.data(), name_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(call_path.data(), name_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+            // Send display_name
+            int display_len = display_name.size();
+            MPI_Send(&display_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(display_name.data(), display_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+            // Send parent_path
+            int parent_len = parent_path.size();
+            MPI_Send(&parent_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(parent_path.data(), parent_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
 
             MPI_Send(&total_times[i], 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
             MPI_Send(&call_counts[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD);

@@ -300,9 +300,12 @@ Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation 
     }
     
     // Broadcast source dimensions and channels (needed by all ranks)
-    MPI_Bcast(&src_w, 1, MPI_INT, 0, grid.cart_comm);
-    MPI_Bcast(&src_h, 1, MPI_INT, 0, grid.cart_comm);
-    MPI_Bcast(&channels, 1, MPI_INT, 0, grid.cart_comm);
+    {
+        PROFILE_MPI("Bcast_dimensions");
+        MPI_Bcast(&src_w, 1, MPI_INT, 0, grid.cart_comm);
+        MPI_Bcast(&src_h, 1, MPI_INT, 0, grid.cart_comm);
+        MPI_Bcast(&channels, 1, MPI_INT, 0, grid.cart_comm);
+    }
     
     // Verify tile is valid
     if (tile.global_width != new_w || tile.global_height != new_h) {
@@ -330,6 +333,7 @@ Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation 
     // Broadcast full source image to all ranks
     {
         PROFILE_SCOPE("broadcast_source_image");
+        PROFILE_MPI("Bcast_image_data");
         MPI_Bcast(full_src.data, src_w * src_h * channels, MPI_FLOAT, 0, grid.cart_comm);
     }
     
