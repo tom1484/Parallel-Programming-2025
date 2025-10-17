@@ -5,9 +5,9 @@ sample_id="$1"
 cmake --build build/Release
 echo ""
 
-PE=1
-NP=2
-THREADS=2
+PE=${2:-2}
+NP=${3:-4}
+THREADS=${4:-6}
 
 echo "Running..."
 start_time=$(date +%s%N)

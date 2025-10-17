@@ -6,10 +6,10 @@ echo "Building project..."
 cmake --build build/Release
 echo ""
 
-N=1
-PE=1
-NP=2
-THREADS=2
+N=${2:-10}
+PE=${3:-2}
+NP=${4:-4}
+THREADS=${5:-6}
 
 echo "Running benchmark on all $N testcases..."
 echo "================================================"
