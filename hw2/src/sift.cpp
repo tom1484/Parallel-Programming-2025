@@ -198,6 +198,40 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
     return pyramid;
 }
 
+// Parallel DoG pyramid generation
+// Each rank processes its local tiles - no communication needed (embarrassingly parallel)
+ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyramid) {
+    PROFILE_FUNCTION();
+    
+    // Initialize DoG pyramid structure
+    // DoG has one fewer image per octave than Gaussian (difference between consecutive scales)
+    ScaleSpacePyramid dog_pyramid = {img_pyramid.num_octaves, img_pyramid.imgs_per_octave - 1,
+                                     vector<vector<Image>>(img_pyramid.num_octaves)};
+    
+    // Process each octave
+    for (int i = 0; i < dog_pyramid.num_octaves; i++) {
+        dog_pyramid.octaves[i].reserve(dog_pyramid.imgs_per_octave);
+        
+        // Compute DoG for each scale in this octave
+        // DoG[j] = Gaussian[j+1] - Gaussian[j]
+        for (int j = 1; j < img_pyramid.imgs_per_octave; j++) {
+            // Copy the higher-scale image
+            Image diff = img_pyramid.octaves[i][j];
+            
+            // Subtract the lower-scale image pixel-by-pixel
+            // OpenMP is currently disabled, so this runs single-threaded per rank
+            // Future: Add #pragma omp parallel for when re-enabling OpenMP
+            for (int pix_idx = 0; pix_idx < diff.size; pix_idx++) {
+                diff.data[pix_idx] -= img_pyramid.octaves[i][j - 1].data[pix_idx];
+            }
+            
+            dog_pyramid.octaves[i].push_back(move(diff));
+        }
+    }
+    
+    return dog_pyramid;
+}
+
 // Parallel version of find_keypoints_and_descriptors
 // Uses parallel Gaussian pyramid, then gathers to rank 0 for remaining serial processing
 vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const TileInfo& base_tile,
@@ -220,21 +254,30 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     ScaleSpacePyramid local_gaussian_pyramid =
         generate_gaussian_pyramid_parallel(input_img, base_tile, grid, sigma_min, num_octaves, scales_per_octave);
 
-    // Gather the pyramid to rank 0 for serial processing
-    // For now, we'll gather each octave/scale separately
+    // Generate DoG pyramid in parallel (each rank processes its local tiles)
+    ScaleSpacePyramid local_dog_pyramid = generate_dog_pyramid_parallel(local_gaussian_pyramid);
+
+    // Gather the pyramids to rank 0 for remaining serial processing
+    // For now, we gather both Gaussian and DoG pyramids
     ScaleSpacePyramid full_gaussian_pyramid;
+    ScaleSpacePyramid full_dog_pyramid;
 
     {
-        PROFILE_SCOPE("gather_pyramid");
+        PROFILE_SCOPE("gather_pyramids");
         // All ranks should have computed the same number of octaves now
-        // Initialize the full pyramid structure on rank 0
+        // Initialize the full pyramid structures on rank 0
         if (grid.rank == 0) {
             full_gaussian_pyramid.num_octaves = local_gaussian_pyramid.num_octaves;
             full_gaussian_pyramid.imgs_per_octave = local_gaussian_pyramid.imgs_per_octave;
             full_gaussian_pyramid.octaves.resize(local_gaussian_pyramid.num_octaves);
+            
+            full_dog_pyramid.num_octaves = local_dog_pyramid.num_octaves;
+            full_dog_pyramid.imgs_per_octave = local_dog_pyramid.imgs_per_octave;
+            full_dog_pyramid.octaves.resize(local_dog_pyramid.num_octaves);
         }
 
         for (int oct = 0; oct < local_gaussian_pyramid.num_octaves; oct++) {
+            // Gather Gaussian pyramid for this octave
             for (int scale = 0; scale < local_gaussian_pyramid.imgs_per_octave; scale++) {
                 // Get local image (should exist if we computed this many octaves)
                 const Image& local_img = local_gaussian_pyramid.octaves[oct][scale];
@@ -281,6 +324,46 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                     }
                 }
             }
+            
+            // Gather DoG pyramid for this octave
+            // DoG has one fewer image per octave than Gaussian
+            for (int scale = 0; scale < local_dog_pyramid.imgs_per_octave; scale++) {
+                const Image& local_img = local_dog_pyramid.octaves[oct][scale];
+
+                // Check if this octave was processed in rank-0-only mode
+                int local_size = local_img.width * local_img.height;
+                int min_size;
+                MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+                bool is_rank0_only = (min_size == 0);
+                
+                if (is_rank0_only) {
+                    if (grid.rank == 0) {
+                        full_dog_pyramid.octaves[oct].push_back(Image(local_img));
+                    }
+                } else {
+                    // Compute tile info for this octave
+                    TileInfo tile;
+                    int base_width = base_tile.global_width * 2;
+                    int base_height = base_tile.global_height * 2;
+                    tile.compute_for_octave(oct, base_width, base_height, grid);
+
+                    // Prepare full image on rank 0
+                    Image full_img;
+                    if (grid.rank == 0) {
+                        int octave_width = base_width / (1 << oct);
+                        int octave_height = base_height / (1 << oct);
+                        full_img = Image(octave_width, octave_height, 1);
+                    }
+
+                    // Gather tiles - ALL ranks must participate
+                    if (grid.rank == 0) {
+                        gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
+                        full_dog_pyramid.octaves[oct].push_back(move(full_img));
+                    } else {
+                        gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
+                    }
+                }
+            }
         }
     }
 
@@ -298,11 +381,11 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     // Continue with serial SIFT pipeline on rank 0
     vector<Keypoint> kps;
     if (grid.rank == 0) {
-        // Generate DoG pyramid
-        ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(full_gaussian_pyramid);
+        // DoG pyramid was already computed in parallel and gathered
+        // Use full_dog_pyramid directly
 
         // Find keypoints
-        vector<Keypoint> tmp_kps = find_keypoints(dog_pyramid, contrast_thresh, edge_thresh);
+        vector<Keypoint> tmp_kps = find_keypoints(full_dog_pyramid, contrast_thresh, edge_thresh);
 
         // Generate gradient pyramid
         ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid(full_gaussian_pyramid);

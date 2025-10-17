@@ -11,6 +11,11 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
                                                      const CartesianGrid& grid, float sigma_min = SIGMA_MIN,
                                                      int num_octaves = N_OCT, int scales_per_octave = N_SPO);
 
+// Parallel version of DoG pyramid generation
+// Each rank processes its local tiles from the Gaussian pyramid
+// This is embarrassingly parallel - no communication needed
+ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyramid);
+
 // Parallel version of find_keypoints_and_descriptors
 // Currently uses parallel Gaussian pyramid generation, then gathers to rank 0 for serial processing
 std::vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const TileInfo& base_tile,

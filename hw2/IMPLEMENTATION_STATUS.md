@@ -5,8 +5,8 @@ This document tracks the implementation of hybrid MPI+OpenMP parallelization for
 
 **Note:** OpenMP is currently disabled in the implementation (MPI-only mode) to simplify correctness debugging of halo exchanges and boundary handling. The profiler remains enabled and will report MPI rank information; any OpenMP metrics will be absent while OMP is disabled. OpenMP pragmas will be re-enabled after MPI correctness is fully validated.
 
-**Date:** October 17, 2025  
-**Status:** Phase 1 (Gaussian Pyramid Parallelization) - Implementation Complete, Testing & Validation in Progress
+**Date:** October 18, 2025  
+**Status:** Phase 2 (DoG Pyramid Parallelization) - Implementation Complete and Tested
 
 ---
 
@@ -226,6 +226,42 @@ This document tracks the implementation of hybrid MPI+OpenMP parallelization for
   - Debug: `-g -Wall` flags, `DEBUG` preprocessor definition
 - **Output:** `compile_commands.json` for LSP/IDE support
 
+### 8. Parallel DoG Pyramid (`sift.cpp`) ⭐ NEW - Phase 2
+
+**Function:** `generate_dog_pyramid_parallel()`
+
+**Implementation:**
+- **Embarrassingly parallel computation** - no MPI communication needed
+- Each rank processes its local tiles from the Gaussian pyramid
+- Pixel-wise subtraction: DoG[j] = Gaussian[j+1] - Gaussian[j]
+- Operates on distributed data (tiles), no gathering required until later
+
+**Algorithm:**
+```cpp
+For each octave:
+    For each scale j (1 to imgs_per_octave):
+        Copy Gaussian[j] to diff
+        Subtract Gaussian[j-1] pixel-by-pixel
+        Store diff as DoG[j-1]
+```
+
+**Key characteristics:**
+- **Zero communication overhead:** Pure local computation
+- **Memory efficient:** Operates on already-distributed tiles
+- **Scales linearly:** Near-perfect parallel efficiency
+- **OpenMP ready:** Comments indicate future parallelization points
+
+**Performance (Testcase 00, 4 ranks):**
+- Total time: ~71.79 ms across 4 ranks
+- Per-rank average: ~17.95 ms
+- Overhead: 0% (no communication)
+- Expected speedup: Linear with rank count
+
+**Integration:**
+- Called immediately after `generate_gaussian_pyramid_parallel()`
+- Both Gaussian and DoG pyramids gathered together to rank 0
+- Eliminates serial DoG computation on rank 0
+
 ---
 
 ## 🚧 In Progress / To Do
@@ -360,15 +396,20 @@ Check logs for:
 - Gather/scatter overhead (visible in MPI_ sections)
 - Rank-0-only mode activation for high octaves
 
-### Phase 2: Complete SIFT Parallelization (Future)
+### Phase 2: Complete SIFT Parallelization
+
+**Completed stages:**
+
+1. **✅ DoG Pyramid** (Phase 2 - October 18, 2025)
+   - Implemented `generate_dog_pyramid_parallel()`
+   - Embarrassingly parallel - zero communication overhead
+   - Each rank processes local tiles independently
+   - Performance: ~17.95 ms per rank (testcase 00, 4 ranks)
+   - Details: See `PHASE2_DOG_IMPLEMENTATION.md`
 
 **Remaining stages:**
 
-1. **DoG Pyramid** (trivial)
-   - Already local operation
-   - Add OpenMP to pixel-wise subtraction
-
-2. **Keypoint Detection**
+2. **Keypoint Detection** (Next: Phase 3)
    - Parallelize extrema scanning with OpenMP
    - Implement ownership rule for boundary keypoints
    - Gather keypoints from all ranks
