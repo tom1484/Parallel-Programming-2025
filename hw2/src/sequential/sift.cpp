@@ -9,6 +9,7 @@
 #include <iostream>
 #include <tuple>
 #include <vector>
+#include <fstream>
 
 #include "profiler.hpp"
 #include "sequential/image.hpp"
@@ -455,4 +456,19 @@ Image draw_keypoints(const Image& img, const vector<Keypoint>& kps) {
         draw_point(res, kp.x, kp.y, 5);
     }
     return res;
+}
+
+void export_keypoints_discrete(const vector<Keypoint>& kps, const string& file_path) {
+    // Export i, j, octave, scale
+    ofstream ofs(file_path);
+    for (const auto& kp : kps) {
+        // clang-format off
+        ofs << kp.octave << " "
+            << kp.scale << " "
+            << kp.x << " "
+            << kp.y << " "
+            << kp.extremum_val << "\n";
+        // clang-format on
+    }
+    ofs.close();
 }

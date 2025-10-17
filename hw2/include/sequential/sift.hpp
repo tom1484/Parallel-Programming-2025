@@ -84,4 +84,6 @@ vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_mi
 
 Image draw_keypoints(const Image& img, const vector<Keypoint>& kps);
 
+void export_keypoints_discrete(const vector<Keypoint>& kps, const string& file_path);
+
 #endif
