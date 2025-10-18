@@ -91,131 +91,100 @@ void TileInfo::compute_for_octave(int octave, int base_width, int base_height, c
 bool TileInfo::is_too_small(int min_size) const { return width < min_size || height < min_size; }
 
 // HaloBuffers implementation
-void HaloBuffers::allocate(int width, int height, int halo_width) {
+void HaloBuffers::allocate(int _stack_size, int width, int height, int halo_width) {
     // For odd-sized images split across ranks, neighbors may have different tile sizes
     // Allocate conservatively - use max possible size to handle any neighbor
     // Top/bottom: use maximum possible width
     // Left/right: use maximum possible height
-    
+
     // Conservative allocation: add safety margin for odd-sized tiles
     // In practice, difference is at most 1 pixel per direction
+    stack_size = _stack_size;
     int max_width_variation = 2;  // Account for ±1 pixel difference
     int max_height_variation = 2;
-    
+
     // Top/bottom: width elements × halo_width rows (neighbors may have slightly different width)
-    top_send.resize((width + max_width_variation) * halo_width);
-    top_recv.resize((width + max_width_variation) * halo_width);
-    bottom_send.resize((width + max_width_variation) * halo_width);
-    bottom_recv.resize((width + max_width_variation) * halo_width);
+    top_send.resize((width + max_width_variation) * halo_width * stack_size);
+    top_recv.resize((width + max_width_variation) * halo_width * stack_size);
+    bottom_send.resize((width + max_width_variation) * halo_width * stack_size);
+    bottom_recv.resize((width + max_width_variation) * halo_width * stack_size);
 
     // Left/right: halo_width elements × height rows (neighbors may have slightly different height)
-    left_send.resize(halo_width * (height + max_height_variation));
-    left_recv.resize(halo_width * (height + max_height_variation));
-    right_send.resize(halo_width * (height + max_height_variation));
-    right_recv.resize(halo_width * (height + max_height_variation));
+    left_send.resize(halo_width * (height + max_height_variation) * stack_size);
+    left_recv.resize(halo_width * (height + max_height_variation) * stack_size);
+    right_send.resize(halo_width * (height + max_height_variation) * stack_size);
+    right_recv.resize(halo_width * (height + max_height_variation) * stack_size);
+}
+
+void HaloBuffers::allocate(int width, int height, int halo_width) {
+    allocate(1, width, height, halo_width);  // Default stack size
+}
+
+void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers) {
+    int pixels = width * height;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+        // Pack top rows
+        for (int h = 0; h < halo_width; h++) {
+            for (int x = 0; x < width; x++) {
+                buffers.top_send[s * pixels + h * width + x] = stack_data[h * width + x];
+            }
+        }
+        // Pack bottom rows
+        for (int h = 0; h < halo_width; h++) {
+            for (int x = 0; x < width; x++) {
+                buffers.bottom_send[s * pixels + h * width + x] = stack_data[(height - halo_width + h) * width + x];
+            }
+        }
+    }
 }
 
 // Pack boundary data for halo exchange
+void pack_boundaries_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers) {
+    int pixels = width * height;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+        // Pack left columns
+        for (int y = 0; y < height; y++) {
+            for (int h = 0; h < halo_width; h++) {
+                buffers.left_send[s * pixels + y * halo_width + h] = stack_data[y * width + h];
+            }
+        }
+        // Pack right columns
+        for (int y = 0; y < height; y++) {
+            for (int h = 0; h < halo_width; h++) {
+                buffers.right_send[s * pixels + y * halo_width + h] = stack_data[y * width + (width - halo_width + h)];
+            }
+        }
+    }
+}
+
+// Pack boundary data for halo exchange
+void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                     HaloBuffers& buffers) {
+    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers) {
+    pack_boundaries_vertical(&data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers) {
+    pack_boundaries_horizontal(&data, width, height, halo_width, tile, buffers);
+}
+
 void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                      HaloBuffers& buffers) {
-    // Pack top rows
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            buffers.top_send[h * width + x] = data[h * width + x];
-        }
-    }
-
-    // Pack bottom rows
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            buffers.bottom_send[h * width + x] = data[(height - halo_width + h) * width + x];
-        }
-    }
-
-    // Pack left columns
-    for (int y = 0; y < height; y++) {
-        for (int h = 0; h < halo_width; h++) {
-            buffers.left_send[y * halo_width + h] = data[y * width + h];
-        }
-    }
-
-    // Pack right columns
-    for (int y = 0; y < height; y++) {
-        for (int h = 0; h < halo_width; h++) {
-            buffers.right_send[y * halo_width + h] = data[y * width + (width - halo_width + h)];
-        }
-    }
+    pack_boundaries(&data, width, height, halo_width, tile, buffers);
 }
 
-// Unpack received halo data (expand image to include halos)
-void unpack_boundaries(float* data_with_halo, int width, int height, int halo_width, const TileInfo& tile,
-                       const HaloBuffers& buffers) {
-    int padded_width = width + 2 * halo_width;
-
-    // Unpack top halo
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            data_with_halo[h * padded_width + (halo_width + x)] = buffers.top_recv[h * width + x];
-        }
-    }
-
-    // Unpack bottom halo
-    for (int h = 0; h < halo_width; h++) {
-        for (int x = 0; x < width; x++) {
-            data_with_halo[(height + halo_width + h) * padded_width + (halo_width + x)] =
-                buffers.bottom_recv[h * width + x];
-        }
-    }
-
-    // Unpack left halo
-    for (int y = 0; y < height; y++) {
-        for (int h = 0; h < halo_width; h++) {
-            data_with_halo[(halo_width + y) * padded_width + h] = buffers.left_recv[y * halo_width + h];
-        }
-    }
-
-    // Unpack right halo
-    for (int y = 0; y < height; y++) {
-        for (int h = 0; h < halo_width; h++) {
-            data_with_halo[(halo_width + y) * padded_width + (width + halo_width + h)] =
-                buffers.right_recv[y * halo_width + h];
-        }
-    }
-}
-
-// Perform nonblocking halo exchange
-void exchange_halos(float* data, int width, int height, int halo_width, const TileInfo& tile, const CartesianGrid& grid,
-                    HaloBuffers& buffers, MPI_Request* requests) {
-    int req_idx = 0;
-
-    // For odd-sized images, even vertical neighbors can have different heights,
-    // and horizontal neighbors can have different widths!
-    // Example: 39-pixel height split between 2 ranks → 19 and 20 pixels
-    // We must compute neighbor dimensions to set correct MPI message sizes.
-    
-    auto compute_tile_width = [&](int px) -> int {
-        int xs = (px * tile.global_width) / grid.dims[0];
-        int xe = ((px + 1) * tile.global_width) / grid.dims[0];
-        return xe - xs;
-    };
-    
-    auto compute_tile_height = [&](int py) -> int {
-        int ys = (py * tile.global_height) / grid.dims[1];
-        int ye = ((py + 1) * tile.global_height) / grid.dims[1];
-        return ye - ys;
-    };
-    
-    // Get neighbor dimensions by computing from their coordinates
-    // Top/bottom: same px, different py (but might have different height!)
-    // Left/right: different px, same py (but might have different width!)
-    int my_px = grid.coords[0];
-    int my_py = grid.coords[1];
-    
-    int top_height = (grid.neighbors[TOP] != MPI_PROC_NULL) ? compute_tile_height(my_py - 1) : height;
-    int bottom_height = (grid.neighbors[BOTTOM] != MPI_PROC_NULL) ? compute_tile_height(my_py + 1) : height;
-    int left_width = (grid.neighbors[LEFT] != MPI_PROC_NULL) ? compute_tile_width(my_px - 1) : width;
-    int right_width = (grid.neighbors[RIGHT] != MPI_PROC_NULL) ? compute_tile_width(my_px + 1) : width;
-
+void exchange_halos_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                             const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
     // Post receives with correct sizes
     // Top/bottom: neighbor has same width as me, but might have different height
     // Left/right: neighbor has same height as me, but might have different width
@@ -229,6 +198,26 @@ void exchange_halos(float* data, int width, int height, int halo_width, const Ti
         MPI_Irecv(buffers.bottom_recv.data(), width * halo_width, MPI_FLOAT, grid.neighbors[BOTTOM], 1, grid.cart_comm,
                   &requests[req_idx++]);
     }
+
+    // Pack and send
+    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
+
+    if (grid.neighbors[TOP] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.top_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[TOP], 1, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottom_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[BOTTOM], 0, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+}
+
+// Perform nonblocking halo exchange
+void exchange_halos_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                               const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    // Post receives with correct sizes
+    // Top/bottom: neighbor has same width as me, but might have different height
+    // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
         // Left neighbor sends me their right columns (halo_width × their_height elements)
         // But wait - if they have different height, the message size is different!
@@ -244,16 +233,8 @@ void exchange_halos(float* data, int width, int height, int halo_width, const Ti
     }
 
     // Pack and send
-    pack_boundaries(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
 
-    if (grid.neighbors[TOP] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.top_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[TOP], 1, grid.cart_comm,
-                  &requests[req_idx++]);
-    }
-    if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.bottom_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[BOTTOM], 0, grid.cart_comm,
-                  &requests[req_idx++]);
-    }
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
         MPI_Isend(buffers.left_send.data(), halo_width * height, MPI_FLOAT, grid.neighbors[LEFT], 3, grid.cart_comm,
                   &requests[req_idx++]);
@@ -262,6 +243,26 @@ void exchange_halos(float* data, int width, int height, int halo_width, const Ti
         MPI_Isend(buffers.right_send.data(), halo_width * height, MPI_FLOAT, grid.neighbors[RIGHT], 2, grid.cart_comm,
                   &requests[req_idx++]);
     }
+}
+
+void exchange_halos(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests) {
+    int req_idx = 0;
+    exchange_halos_vertical(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+    exchange_halos_horizontal(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void exchange_halos(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests) {
+    exchange_halos(&data, width, height, halo_width, tile, grid, buffers, requests);
+}
+void exchange_halos_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                             const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos_vertical(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+void exchange_halos_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                               const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos_horizontal(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 }
 
 void wait_halos(MPI_Request* requests, int num_requests) { MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE); }

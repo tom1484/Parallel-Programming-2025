@@ -5,6 +5,8 @@
 
 #include <vector>
 
+using namespace std;
+
 // Neighbor indices for Cartesian grid
 enum Neighbor { TOP = 0, BOTTOM = 1, LEFT = 2, RIGHT = 3 };
 
@@ -51,25 +53,43 @@ struct TileInfo {
 
 // Buffer for halo exchange
 struct HaloBuffers {
-    std::vector<float> top_send, top_recv;
-    std::vector<float> bottom_send, bottom_recv;
-    std::vector<float> left_send, left_recv;
-    std::vector<float> right_send, right_recv;
+    int stack_size;
+    vector<float> top_send, top_recv;
+    vector<float> bottom_send, bottom_recv;
+    vector<float> left_send, left_recv;
+    vector<float> right_send, right_recv;
 
+    void allocate(int stack_size, int width, int height, int halo_width);
     void allocate(int width, int height, int halo_width);
 };
 
 // Pack boundary data for sending
+void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                     HaloBuffers& buffers);
+void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers);
+void pack_boundaries_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers);
 void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                      HaloBuffers& buffers);
-
-// Unpack received halo data
-void unpack_boundaries(float* data, int width, int height, int halo_width, const TileInfo& tile,
-                       const HaloBuffers& buffers);
+void pack_boundaries_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers);
+void pack_boundaries_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers);
 
 // Perform nonblocking halo exchange
-void exchange_halos(float* data, int width, int height, int halo_width, const TileInfo& tile, const CartesianGrid& grid,
+void exchange_halos(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests);
+void exchange_halos_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx);
+void exchange_halos_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx);
+void exchange_halos(const float* data, int width, int height, int halo_width, const TileInfo& tile, const CartesianGrid& grid,
                     HaloBuffers& buffers, MPI_Request* requests);
+void exchange_halos_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile, const CartesianGrid& grid,
+                    HaloBuffers& buffers, MPI_Request* requests, int& req_idx);
+void exchange_halos_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile, const CartesianGrid& grid,
+                    HaloBuffers& buffers, MPI_Request* requests, int& req_idx);
 
 // Wait for halo exchange to complete
 void wait_halos(MPI_Request* requests, int num_requests);
