@@ -1,4 +1,5 @@
 #include <mpi.h>
+#include <omp.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -29,8 +30,11 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    // Set OpenMP threads - use 6 threads as specified
+    omp_set_num_threads(6);
+    
     if (rank == 0) {
-        cout << "Running with " << size << " MPI ranks (OpenMP disabled)\n";
+        cout << "Running with " << size << " MPI ranks and " << omp_get_max_threads() << " OpenMP threads per rank\n";
     }
 
     // Create Cartesian grid

@@ -1,6 +1,7 @@
 #include "sift.hpp"
 
 #include <mpi.h>
+#include <omp.h>
 
 #include <algorithm>
 #include <cmath>
@@ -207,8 +208,8 @@ ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyr
             Image diff = img_pyramid.octaves[i][j];
 
             // Subtract the lower-scale image pixel-by-pixel
-            // OpenMP is currently disabled, so this runs single-threaded per rank
-            // Future: Add #pragma omp parallel for when re-enabling OpenMP
+            // Parallelized with OpenMP for better performance
+            #pragma omp parallel for schedule(static)
             for (int pix_idx = 0; pix_idx < diff.size; pix_idx++) {
                 diff.data[pix_idx] -= img_pyramid.octaves[i][j - 1].data[pix_idx];
             }
@@ -302,10 +303,12 @@ ScaleSpacePyramid generate_gradient_pyramid_parallel(const ScaleSpacePyramid& im
         }
 
         // Interior pixels
+        // Parallelize gradient computation with OpenMP for better performance
         for (int scale_idx = 0; scale_idx < img_octave.size(); scale_idx++) {
             const Image& src = img_octave[scale_idx];
             Image& grad = grads_buffer[scale_idx];
-            // Compute gradients
+            // Compute gradients with OpenMP parallelization
+            #pragma omp parallel for collapse(2) schedule(static)
             for (int x = 1; x < width - 1; x++) {
                 for (int y = 1; y < height - 1; y++) {
                     float gx = (src.get_pixel(x + 1, y, 0) - src.get_pixel(x - 1, y, 0)) * 0.5f;
@@ -807,16 +810,42 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
         vector<Keypoint> tmp_kps = all_keypoints;
 
         // Compute orientations and descriptors using the gathered gradient pyramid
+        // Parallelized with OpenMP for multi-threaded processing
         {
             PROFILE_SCOPE("orientation_and_descriptor");
-            for (Keypoint& kp_tmp : tmp_kps) {
-                vector<float> orientations =
-                    find_keypoint_orientations(kp_tmp, full_grad_pyramid, lambda_ori, lambda_desc);
-                for (float theta : orientations) {
-                    Keypoint kp = kp_tmp;
-                    compute_keypoint_descriptor(kp, theta, full_grad_pyramid, lambda_desc);
-                    kps.push_back(kp);
+            
+            // Use a thread-safe approach: each thread accumulates its own keypoints
+            // Then we merge them at the end
+            vector<vector<Keypoint>> thread_kps;
+            
+            #pragma omp parallel
+            {
+                int num_threads = omp_get_num_threads();
+                int thread_id = omp_get_thread_num();
+                
+                // Initialize thread-local storage on first thread only
+                #pragma omp single
+                {
+                    thread_kps.resize(num_threads);
                 }
+                
+                // Process keypoints with dynamic scheduling for load balancing
+                #pragma omp for schedule(dynamic, 16)
+                for (size_t i = 0; i < tmp_kps.size(); i++) {
+                    Keypoint kp_tmp = tmp_kps[i];
+                    vector<float> orientations =
+                        find_keypoint_orientations(kp_tmp, full_grad_pyramid, lambda_ori, lambda_desc);
+                    for (float theta : orientations) {
+                        Keypoint kp = kp_tmp;
+                        compute_keypoint_descriptor(kp, theta, full_grad_pyramid, lambda_desc);
+                        thread_kps[thread_id].push_back(kp);
+                    }
+                }
+            }
+            
+            // Merge results from all threads
+            for (const auto& thread_vec : thread_kps) {
+                kps.insert(kps.end(), thread_vec.begin(), thread_vec.end());
             }
         }
     }
