@@ -93,13 +93,13 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
 
         // Normal distributed processing
         pyramid.octaves[i].reserve(imgs_per_octave);
-        pyramid.octaves[i].push_back(move(local_base));
+        pyramid.octaves[i].push_back(std::move(local_base));
 
         // Apply successive blurs
         for (int j = 1; j < sigma_vals.size(); j++) {
             const Image& prev_img = pyramid.octaves[i].back();
             Image blurred = gaussian_blur_parallel(prev_img, sigma_vals[j], tile, grid);
-            pyramid.octaves[i].push_back(move(blurred));
+            pyramid.octaves[i].push_back(std::move(blurred));
         }
 
         // Prepare base image for next octave (downsample by 2x)
@@ -166,13 +166,13 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         if (grid.rank == 0) {
             for (int i = first_small_octave; i < num_octaves; i++) {
                 pyramid.octaves[i].reserve(imgs_per_octave);
-                pyramid.octaves[i].push_back(move(local_base));
+                pyramid.octaves[i].push_back(std::move(local_base));
 
                 // Apply successive blurs sequentially
                 for (int j = 1; j < sigma_vals.size(); j++) {
                     const Image& prev_img = pyramid.octaves[i].back();
                     Image blurred = gaussian_blur(prev_img, sigma_vals[j]);
-                    pyramid.octaves[i].push_back(move(blurred));
+                    pyramid.octaves[i].push_back(std::move(blurred));
                 }
 
                 // Prepare base for next octave (sequential downsample)
@@ -223,7 +223,7 @@ ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyr
                 diff.data[pix_idx] -= img_pyramid.octaves[i][j - 1].data[pix_idx];
             }
 
-            dog_pyramid.octaves[i].push_back(move(diff));
+            dog_pyramid.octaves[i].push_back(std::move(diff));
         }
     }
 
@@ -343,7 +343,7 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
         MPI_Request requests[8];
         int req_idx = 0;
 
-        const float* octave_data[num_dog_scales];
+        const float* octave_data[8]; // Max 8 scales (for typical SIFT settings)
         for (int s = 0; s < num_dog_scales; s++) {
             octave_data[s] = octave[s].data;
         }
@@ -552,7 +552,7 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                     // Gather tiles - ALL ranks must participate
                     if (grid.rank == 0) {
                         gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
-                        full_gaussian_pyramid.octaves[oct].push_back(move(full_img));
+                        full_gaussian_pyramid.octaves[oct].push_back(std::move(full_img));
                     } else {
                         gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
                     }
@@ -592,7 +592,7 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                     // Gather tiles - ALL ranks must participate
                     if (grid.rank == 0) {
                         gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
-                        full_dog_pyramid.octaves[oct].push_back(move(full_img));
+                        full_dog_pyramid.octaves[oct].push_back(std::move(full_img));
                     } else {
                         gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
                     }
