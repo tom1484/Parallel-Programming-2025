@@ -9,10 +9,6 @@
 #include <string>
 
 #include "image.hpp"
-#include "mpi_utils.hpp"
-#include "profiler.hpp"
-#include "sequential/image.hpp"
-#include "sequential/sift.hpp"
 #include "sift.hpp"
 
 using namespace std;

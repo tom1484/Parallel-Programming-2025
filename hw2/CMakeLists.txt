@@ -22,10 +22,6 @@ set(SRC
   "${CMAKE_SOURCE_DIR}/src/hw2.cpp"
   "${CMAKE_SOURCE_DIR}/src/sift.cpp"
   "${CMAKE_SOURCE_DIR}/src/image.cpp"
-  "${CMAKE_SOURCE_DIR}/src/profiler.cpp"
-  "${CMAKE_SOURCE_DIR}/src/mpi_utils.cpp"
-  "${CMAKE_SOURCE_DIR}/src/sequential/image.cpp"
-  "${CMAKE_SOURCE_DIR}/src/sequential/sift.cpp"
 )
 
 # Define the executable target

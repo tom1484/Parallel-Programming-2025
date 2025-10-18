@@ -13,22 +13,14 @@ import shutil
 from pathlib import Path
 
 SOURCES = [
-    "sequential/image.cpp",
-    "sequential/sift.cpp",
     "hw2.cpp",
     "image.cpp",
-    "mpi_utils.cpp",
-    "profiler.cpp",
     "sift.cpp",
 ]
 HEADERS = [
-    "sequential/image.hpp",
-    "sequential/sift.hpp",
     "stb/image_write.h",
     "stb/image.h",
     "image.hpp",
-    "mpi_utils.hpp",
-    "profiler.hpp",
     "sift.hpp",
 ]
 

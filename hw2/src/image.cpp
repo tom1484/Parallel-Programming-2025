@@ -1,17 +1,1279 @@
 #include "image.hpp"
 
-#include <mpi.h>
+#include <omp.h>
 
 #include <cassert>
 #include <cmath>
-#include <cstdio>
-#include <vector>
+#include <iostream>
+#include <utility>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <iomanip>
 
-#include "mpi_utils.hpp"
-#include "profiler.hpp"
-#include "sequential/image.hpp"
+#include "stb/image_write.h"
 
 using namespace std;
+
+Profiler& Profiler::getInstance() {
+    static Profiler instance;
+    return instance;
+}
+
+void Profiler::initializeMPI(int rank, int size) {
+    mpi_rank_ = rank;
+    mpi_size_ = size;
+}
+
+void Profiler::startSection(const string& name) {
+    int thread_id = omp_get_thread_num();
+
+    lock_guard<mutex> lock(timings_mutex_);
+
+    // Get or initialize thread-specific data
+    auto& timer_stack = thread_timer_stacks_[thread_id];
+    int& current_depth = thread_depths_[thread_id];
+
+    // Build call path: parent_path/name
+    string call_path;
+    string parent_path;
+    if (!timer_stack.empty()) {
+        parent_path = timer_stack.back().call_path;
+        call_path = parent_path + "/" + name;
+    } else {
+        call_path = name;  // Root level
+    }
+
+    SectionTimer timer;
+    timer.name = name;
+    timer.call_path = call_path;
+    timer.start_time = chrono::high_resolution_clock::now();
+    timer.depth = current_depth;
+    timer.thread_id = thread_id;
+
+    // Initialize timing data if this is the first call to this path
+    if (timings_.find(call_path) == timings_.end()) {
+        bool is_mpi = (name.find("MPI_") == 0);  // Check if name starts with "MPI_"
+        timings_[call_path] = {0.0, 0, current_depth, {}, 1e9, 0.0, is_mpi, name, parent_path};
+    }
+
+    // Track parent-child relationships using call paths
+    if (!timer_stack.empty()) {
+        const string& parent_call_path = timer_stack.back().call_path;
+        auto& parent_children = timings_[parent_call_path].children;
+        if (find(parent_children.begin(), parent_children.end(), call_path) == parent_children.end()) {
+            parent_children.push_back(call_path);
+        }
+    } else {
+        // This is a root section
+        if (root_section_.empty()) {
+            root_section_ = call_path;
+        }
+    }
+
+    timer_stack.push_back(timer);
+    current_depth++;
+}
+
+void Profiler::endSection(const string& name) {
+    auto end_time = chrono::high_resolution_clock::now();
+    int thread_id = omp_get_thread_num();
+
+    lock_guard<mutex> lock(timings_mutex_);
+
+    auto& timer_stack = thread_timer_stacks_[thread_id];
+    int& current_depth = thread_depths_[thread_id];
+
+    if (timer_stack.empty()) {
+        cerr << "Profiler error: endSection called without matching startSection for " << name << "\n";
+        return;
+    }
+
+    const SectionTimer& timer = timer_stack.back();
+    if (timer.name != name) {
+        cerr << "Profiler error: endSection name mismatch. Expected " << timer.name << ", got " << name << "\n";
+        return;
+    }
+
+    auto duration = chrono::duration_cast<chrono::microseconds>(end_time - timer.start_time);
+    double duration_ms = duration.count() / 1000.0;
+
+    const string& call_path = timer.call_path;
+    timings_[call_path].total_time_ms += duration_ms;
+    timings_[call_path].call_count++;
+    timings_[call_path].min_time_ms = min(timings_[call_path].min_time_ms, duration_ms);
+    timings_[call_path].max_time_ms = max(timings_[call_path].max_time_ms, duration_ms);
+
+    timer_stack.pop_back();
+    current_depth--;
+
+    // Track total program time from root sections
+    if (timer_stack.empty()) {
+        total_program_time_ms_ += duration_ms;
+    }
+}
+
+void Profiler::printAggregatedSection(const string& call_path, const map<string, TimingData>& aggregated_timings,
+                                      double parent_time_ms, string prefix, bool last, double total_time) const {
+    auto it = aggregated_timings.find(call_path);
+    if (it == aggregated_timings.end()) return;
+
+    const TimingData& data = it->second;
+
+    // Calculate percentages and averages
+    double percent_of_total = total_time > 0 ? (data.total_time_ms / total_time * 100.0) : 0.0;
+    double avg_time_ms = data.call_count > 0 ? (data.total_time_ms / data.call_count) : 0.0;
+
+    // Print indentation based on depth
+    string local_prefix = prefix + (last ? "└─ " : "├─ ");
+    // clang-format off
+    cerr << left
+         << local_prefix
+         << setw(50 - (data.depth + 1) * 3) << data.display_name
+         << right
+         << setw(12) << fixed << setprecision(2) << data.total_time_ms
+         << setw(12) << fixed << setprecision(2) << data.min_time_ms
+         << setw(12) << fixed << setprecision(2) << data.max_time_ms
+         << setw(9) << fixed << setprecision(1) << percent_of_total << "%"
+         << setw(10) << data.call_count
+         << setw(14) << fixed << setprecision(2) << avg_time_ms
+         << "\n";
+    // clang-format on
+
+    // Recursively print children
+    for (size_t i = 0; i < data.children.size(); ++i) {
+        const string& child = data.children[i];
+        bool last_child = (i == data.children.size() - 1);
+        string child_prefix = prefix + (last ? "   " : "│  ");
+        printAggregatedSection(child, aggregated_timings, data.total_time_ms, child_prefix, last_child, total_time);
+    }
+}
+
+void Profiler::reset() {
+    lock_guard<mutex> lock(timings_mutex_);
+    timings_.clear();
+    thread_timer_stacks_.clear();
+    thread_depths_.clear();
+    current_depth_ = 0;
+    total_program_time_ms_ = 0.0;
+    root_section_.clear();
+}
+
+double Profiler::getTotalMPITime() const {
+    double total_mpi_time = 0.0;
+    for (const auto& entry : timings_) {
+        if (entry.second.is_mpi) {
+            total_mpi_time += entry.second.total_time_ms;
+        }
+    }
+    return total_mpi_time;
+}
+
+void Profiler::gatherAndReport() {
+    // Serialize local timing data
+    vector<string> section_names;
+    vector<double> total_times;
+    vector<int> call_counts;
+    vector<int> depths;
+    vector<double> min_times;
+    vector<double> max_times;
+    vector<int> children_counts;
+    vector<string> all_children;
+
+    vector<string> display_names;
+    vector<string> parent_paths;
+
+    for (const auto& entry : timings_) {
+        section_names.push_back(entry.first);  // call_path
+        display_names.push_back(entry.second.display_name);
+        parent_paths.push_back(entry.second.parent_path);
+        total_times.push_back(entry.second.total_time_ms);
+        call_counts.push_back(entry.second.call_count);
+        depths.push_back(entry.second.depth);
+        min_times.push_back(entry.second.min_time_ms);
+        max_times.push_back(entry.second.max_time_ms);
+        children_counts.push_back(entry.second.children.size());
+        for (const auto& child : entry.second.children) {
+            all_children.push_back(child);
+        }
+    }
+
+    int local_section_count = section_names.size();
+    double local_total_time = total_program_time_ms_;
+    string local_root = root_section_;
+
+    // Gather section counts from all ranks
+    vector<int> all_section_counts(mpi_size_);
+    MPI_Gather(&local_section_count, 1, MPI_INT, all_section_counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if (mpi_rank_ == 0) {
+        // Aggregate timings from all ranks
+        map<string, TimingData> aggregated_timings;
+        map<string, vector<double>> rank_times;  // For computing statistics
+        double max_total_time = local_total_time;
+
+        // Add rank 0's data
+        for (size_t i = 0; i < section_names.size(); ++i) {
+            const string& call_path = section_names[i];
+            const string& display_name = display_names[i];
+            const string& parent_path = parent_paths[i];
+            bool is_mpi = (display_name.find("MPI_") == 0);
+            aggregated_timings[call_path] = {total_times[i], call_counts[i], depths[i],    {},         min_times[i],
+                                             max_times[i],   is_mpi,         display_name, parent_path};
+            rank_times[call_path].push_back(total_times[i]);
+
+            // Restore children
+            int child_offset = 0;
+            for (size_t j = 0; j < i; ++j) {
+                child_offset += children_counts[j];
+            }
+            for (int j = 0; j < children_counts[i]; ++j) {
+                aggregated_timings[call_path].children.push_back(all_children[child_offset + j]);
+            }
+        }
+
+        // Receive data from other ranks
+        for (int rank = 1; rank < mpi_size_; ++rank) {
+            int remote_section_count = all_section_counts[rank];
+
+            // Receive total program time
+            double remote_total_time;
+            MPI_Recv(&remote_total_time, 1, MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            max_total_time = max(max_total_time, remote_total_time);
+
+            // Receive root section name length and name
+            int root_len;
+            MPI_Recv(&root_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            if (root_len > 0) {
+                vector<char> root_buf(root_len);
+                MPI_Recv(root_buf.data(), root_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+
+            for (int i = 0; i < remote_section_count; ++i) {
+                // Receive call_path
+                int name_len;
+                MPI_Recv(&name_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                vector<char> name_buf(name_len);
+                MPI_Recv(name_buf.data(), name_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                string call_path(name_buf.begin(), name_buf.end());
+
+                // Receive display_name
+                int display_len;
+                MPI_Recv(&display_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                vector<char> display_buf(display_len);
+                MPI_Recv(display_buf.data(), display_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                string display_name(display_buf.begin(), display_buf.end());
+
+                // Receive parent_path
+                int parent_len;
+                MPI_Recv(&parent_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                vector<char> parent_buf(parent_len);
+                MPI_Recv(parent_buf.data(), parent_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                string parent_path(parent_buf.begin(), parent_buf.end());
+
+                // Receive timing data
+                double total_time, min_time, max_time;
+                int call_count, depth, children_count;
+                MPI_Recv(&total_time, 1, MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&call_count, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&depth, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&min_time, 1, MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&max_time, 1, MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&children_count, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+                // Receive children names
+                vector<string> children;
+                for (int j = 0; j < children_count; ++j) {
+                    int child_len;
+                    MPI_Recv(&child_len, 1, MPI_INT, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    vector<char> child_buf(child_len);
+                    MPI_Recv(child_buf.data(), child_len, MPI_CHAR, rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    children.push_back(string(child_buf.begin(), child_buf.end()));
+                }
+
+                // Aggregate the data
+                bool is_mpi = (display_name.find("MPI_") == 0);
+                if (aggregated_timings.find(call_path) == aggregated_timings.end()) {
+                    aggregated_timings[call_path] = {total_time, call_count, depth,        children,   min_time,
+                                                     max_time,   is_mpi,     display_name, parent_path};
+                } else {
+                    aggregated_timings[call_path].total_time_ms += total_time;
+                    aggregated_timings[call_path].call_count += call_count;
+                    aggregated_timings[call_path].min_time_ms =
+                        min(aggregated_timings[call_path].min_time_ms, min_time);
+                    aggregated_timings[call_path].max_time_ms =
+                        max(aggregated_timings[call_path].max_time_ms, max_time);
+
+                    // Merge children lists
+                    for (const auto& child : children) {
+                        if (find(aggregated_timings[call_path].children.begin(),
+                                 aggregated_timings[call_path].children.end(),
+                                 child) == aggregated_timings[call_path].children.end()) {
+                            aggregated_timings[call_path].children.push_back(child);
+                        }
+                    }
+                }
+
+                rank_times[call_path].push_back(total_time);
+            }
+        }
+
+        // clang-format off
+        // Print aggregated report
+        cerr << "\n";
+        cerr << "========================================================================================================================\n";
+        cerr << "PARALLEL PROFILING REPORT\n";
+        cerr << "MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
+             << omp_get_max_threads() << "\n";
+        cerr << "========================================================================================================================\n";
+        cerr << left
+             << setw(50) << "Section"
+             << right
+             << setw(12) << "Total(ms)"
+             << setw(12) << "Min(ms)"
+             << setw(12) << "Max(ms)"
+             << setw(10) << "Total%"
+             << setw(10) << "Calls"
+             << setw(14) << "Avg(ms/call)"
+             << "\n";
+        cerr << "------------------------------------------------------------------------------------------------------------------------\n";
+        // clang-format on
+
+        // Print all top-level sections
+        vector<string> root_sections;
+        for (const auto& entry : aggregated_timings) {
+            if (entry.second.depth == 0) {
+                root_sections.push_back(entry.first);
+            }
+        }
+
+        for (size_t i = 0; i < root_sections.size(); ++i) {
+            bool last = (i == root_sections.size() - 1);
+            printAggregatedSection(root_sections[i], aggregated_timings, max_total_time, "", last, max_total_time);
+        }
+
+        // Calculate total MPI communication time
+        double total_mpi_time = 0.0;
+        for (const auto& entry : aggregated_timings) {
+            if (entry.second.is_mpi) {
+                total_mpi_time += entry.second.total_time_ms;
+            }
+        }
+        double mpi_percent = max_total_time > 0 ? (total_mpi_time / max_total_time * 100.0) : 0.0;
+
+        // clang-format off
+        cerr << "------------------------------------------------------------------------------------------------------------------------\n";
+        cerr << "Total measured time: " << fixed << setprecision(2) << max_total_time << " ms (max across all ranks)\n";
+        cerr << "Total MPI communication time: " << fixed << setprecision(2) << total_mpi_time 
+             << " ms (" << fixed << setprecision(1) << mpi_percent << "% of total)\n";
+        cerr << "========================================================================================================================\n\n";
+        // clang-format on
+
+    } else {
+        // Send data to rank 0
+        MPI_Send(&local_total_time, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+
+        // Send root section name
+        int root_len = local_root.size();
+        MPI_Send(&root_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        if (root_len > 0) {
+            MPI_Send(local_root.data(), root_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+        }
+
+        for (size_t i = 0; i < section_names.size(); ++i) {
+            const string& call_path = section_names[i];
+            const string& display_name = display_names[i];
+            const string& parent_path = parent_paths[i];
+
+            // Send call_path
+            int name_len = call_path.size();
+            MPI_Send(&name_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(call_path.data(), name_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+            // Send display_name
+            int display_len = display_name.size();
+            MPI_Send(&display_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(display_name.data(), display_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+            // Send parent_path
+            int parent_len = parent_path.size();
+            MPI_Send(&parent_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(parent_path.data(), parent_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+            MPI_Send(&total_times[i], 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&call_counts[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&depths[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&min_times[i], 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&max_times[i], 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&children_counts[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+            // Send children names
+            int child_offset = 0;
+            for (size_t j = 0; j < i; ++j) {
+                child_offset += children_counts[j];
+            }
+            for (int j = 0; j < children_counts[i]; ++j) {
+                const string& child = all_children[child_offset + j];
+                int child_len = child.size();
+                MPI_Send(&child_len, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+                MPI_Send(child.data(), child_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+            }
+        }
+    }
+}
+
+Image::Image(string file_path) {
+    unsigned char* img_data = stbi_load(file_path.c_str(), &width, &height, &channels, 0);
+    if (img_data == nullptr) {
+        const char* error_msg = stbi_failure_reason();
+        cerr << "Failed to load image: " << file_path.c_str() << "\n";
+        cerr << "Error msg (stb_image): " << error_msg << "\n";
+        exit(1);
+    }
+
+    size = width * height * channels;
+    data = new float[size];
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int c = 0; c < channels; c++) {
+                int src_idx = y * width * channels + x * channels + c;
+                int dst_idx = c * height * width + y * width + x;
+                data[dst_idx] = img_data[src_idx] / 255.;
+            }
+        }
+    }
+    if (channels == 4) channels = 3;  // ignore alpha channel
+    stbi_image_free(img_data);
+}
+
+Image::Image(int w, int h, int c) : width{w}, height{h}, channels{c}, size{w * h * c}, data{new float[w * h * c]()} {}
+
+Image::Image() : width{0}, height{0}, channels{0}, size{0}, data{nullptr} {}
+
+Image::~Image() { delete[] this->data; }
+
+Image::Image(const Image& other)
+    : width{other.width},
+      height{other.height},
+      channels{other.channels},
+      size{other.size},
+      data{new float[other.size]} {
+    // cout << "copy constructor\n";
+    for (int i = 0; i < size; i++) data[i] = other.data[i];
+}
+
+Image& Image::operator=(const Image& other) {
+    if (this != &other) {
+        delete[] data;
+        // cout << "copy assignment\n";
+        width = other.width;
+        height = other.height;
+        channels = other.channels;
+        size = other.size;
+        data = new float[other.size];
+        for (int i = 0; i < other.size; i++) data[i] = other.data[i];
+    }
+    return *this;
+}
+
+Image::Image(Image&& other)
+    : width{other.width}, height{other.height}, channels{other.channels}, size{other.size}, data{other.data} {
+    // cout << "move constructor\n";
+    other.data = nullptr;
+    other.size = 0;
+}
+
+Image& Image::operator=(Image&& other) {
+    // cout << "move assignment\n";
+    delete[] data;
+    data = other.data;
+    width = other.width;
+    height = other.height;
+    channels = other.channels;
+    size = other.size;
+
+    other.data = nullptr;
+    other.size = 0;
+    return *this;
+}
+
+// save image as jpg file
+bool Image::save(string file_path) {
+    unsigned char* out_data = new unsigned char[width * height * channels];
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int c = 0; c < channels; c++) {
+                int dst_idx = y * width * channels + x * channels + c;
+                int src_idx = c * height * width + y * width + x;
+                out_data[dst_idx] = roundf(data[src_idx] * 255.);
+            }
+        }
+    }
+    bool success = stbi_write_jpg(file_path.c_str(), width, height, channels, out_data, 100);
+    if (!success) cerr << "Failed to save image: " << file_path << "\n";
+
+    delete[] out_data;
+    return true;
+}
+
+bool Image::save_png(string file_path) {
+    unsigned char* out_data = new unsigned char[width * height * channels];
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int c = 0; c < channels; c++) {
+                int dst_idx = y * width * channels + x * channels + c;
+                int src_idx = c * height * width + y * width + x;
+                out_data[dst_idx] = roundf(data[src_idx] * 255.);
+            }
+        }
+    }
+    bool success = stbi_write_png(file_path.c_str(), width, height, channels, out_data, width * channels);
+    if (!success) cerr << "Failed to save image: " << file_path << "\n";
+
+    delete[] out_data;
+    return success;
+}
+
+bool Image::save_text(string file_path) {
+    FILE* f = fopen(file_path.c_str(), "w");
+    if (!f) {
+        cerr << "Failed to open file for writing: " << file_path << "\n";
+        return false;
+    }
+
+    // Write 2D float data (for grayscale images)
+    // Data is stored in row-major order: height x width
+    for (int i = 0; i < height; i++) {
+        string line;
+        for (int j = 0; j < width; j++) {
+            line += to_string(data[i * width + j]) + " ";
+        }
+        fprintf(f, "%s\n", line.c_str());
+    }
+
+    fclose(f);
+    return true;
+}
+
+void Image::set_pixel(int x, int y, int c, float val) {
+    if (x >= width || x < 0 || y >= height || y < 0 || c >= channels || c < 0) {
+        cerr << "set_pixel() error: Index out of bounds.\n";
+        exit(1);
+    }
+    data[c * width * height + y * width + x] = val;
+}
+
+float Image::get_pixel(int x, int y, int c) const {
+    if (x < 0) x = 0;
+    if (x >= width) x = width - 1;
+    if (y < 0) y = 0;
+    if (y >= height) y = height - 1;
+    return data[c * width * height + y * width + x];
+}
+
+void Image::clamp() {
+    int size = width * height * channels;
+    for (int i = 0; i < size; i++) {
+        float val = data[i];
+        val = (val > 1.0) ? 1.0 : val;
+        val = (val < 0.0) ? 0.0 : val;
+        data[i] = val;
+    }
+}
+
+// map coordinate from 0-current_max range to 0-new_max range
+float map_coordinate(float new_max, float current_max, float coord) {
+    float a = new_max / current_max;
+    float b = -0.5 + a * 0.5;
+    return a * coord + b;
+}
+
+Image Image::resize(int new_w, int new_h, Interpolation method) const {
+    Image resized(new_w, new_h, this->channels);
+    float value = 0;
+    for (int x = 0; x < new_w; x++) {
+        for (int y = 0; y < new_h; y++) {
+            for (int c = 0; c < resized.channels; c++) {
+                float old_x = map_coordinate(this->width, new_w, x);
+                float old_y = map_coordinate(this->height, new_h, y);
+                if (method == Interpolation::BILINEAR)
+                    value = bilinear_interpolate(*this, old_x, old_y, c);
+                else if (method == Interpolation::NEAREST)
+                    value = nn_interpolate(*this, old_x, old_y, c);
+                resized.set_pixel(x, y, c, value);
+            }
+        }
+    }
+    return resized;
+}
+
+float bilinear_interpolate(const Image& img, float x, float y, int c) {
+    float p1, p2, p3, p4, q1, q2;
+    float x_floor = floor(x), y_floor = floor(y);
+    float x_ceil = x_floor + 1, y_ceil = y_floor + 1;
+    p1 = img.get_pixel(x_floor, y_floor, c);
+    p2 = img.get_pixel(x_ceil, y_floor, c);
+    p3 = img.get_pixel(x_floor, y_ceil, c);
+    p4 = img.get_pixel(x_ceil, y_ceil, c);
+    q1 = (y_ceil - y) * p1 + (y - y_floor) * p3;
+    q2 = (y_ceil - y) * p2 + (y - y_floor) * p4;
+    return (x_ceil - x) * q1 + (x - x_floor) * q2;
+}
+
+float nn_interpolate(const Image& img, float x, float y, int c) { return img.get_pixel(round(x), round(y), c); }
+
+Image rgb_to_grayscale(const Image& img) {
+    assert(img.channels == 3);
+    Image gray(img.width, img.height, 1);
+    for (int x = 0; x < img.width; x++) {
+        for (int y = 0; y < img.height; y++) {
+            float red, green, blue;
+            red = img.get_pixel(x, y, 0);
+            green = img.get_pixel(x, y, 1);
+            blue = img.get_pixel(x, y, 2);
+            gray.set_pixel(x, y, 0, 0.299 * red + 0.587 * green + 0.114 * blue);
+        }
+    }
+    return gray;
+}
+
+Image grayscale_to_rgb(const Image& img) {
+    assert(img.channels == 1);
+    Image rgb(img.width, img.height, 3);
+    for (int x = 0; x < img.width; x++) {
+        for (int y = 0; y < img.height; y++) {
+            float gray_val = img.get_pixel(x, y, 0);
+            rgb.set_pixel(x, y, 0, gray_val);
+            rgb.set_pixel(x, y, 1, gray_val);
+            rgb.set_pixel(x, y, 2, gray_val);
+        }
+    }
+    return rgb;
+}
+
+// separable 2D gaussian blur for 1 channel image
+Image gaussian_blur(const Image& img, float sigma) {
+    PROFILE_FUNCTION();
+    assert(img.channels == 1);
+
+    int size = ceil(6 * sigma);
+    if (size % 2 == 0) size++;
+    int center = size / 2;
+    Image kernel(size, 1, 1);
+    float sum = 0;
+    for (int k = -size / 2; k <= size / 2; k++) {
+        float val = exp(-(k * k) / (2 * sigma * sigma));
+        kernel.set_pixel(center + k, 0, 0, val);
+        sum += val;
+    }
+    for (int k = 0; k < size; k++) kernel.data[k] /= sum;
+
+    Image tmp(img.width, img.height, 1);
+    Image filtered(img.width, img.height, 1);
+
+    // convolve vertical
+    for (int x = 0; x < img.width; x++) {
+        for (int y = 0; y < img.height; y++) {
+            float sum = 0;
+            for (int k = 0; k < size; k++) {
+                int dy = -center + k;
+                sum += img.get_pixel(x, y + dy, 0) * kernel.data[k];
+            }
+            tmp.set_pixel(x, y, 0, sum);
+        }
+    }
+    // convolve horizontal
+    for (int x = 0; x < img.width; x++) {
+        for (int y = 0; y < img.height; y++) {
+            float sum = 0;
+            for (int k = 0; k < size; k++) {
+                int dx = -center + k;
+                sum += tmp.get_pixel(x + dx, y, 0) * kernel.data[k];
+            }
+            filtered.set_pixel(x, y, 0, sum);
+        }
+    }
+    return filtered;
+}
+
+void draw_point(Image& img, int x, int y, int size) {
+    for (int i = x - size / 2; i <= x + size / 2; i++) {
+        for (int j = y - size / 2; j <= y + size / 2; j++) {
+            if (i < 0 || i >= img.width) continue;
+            if (j < 0 || j >= img.height) continue;
+            if (abs(i - x) + abs(j - y) > size / 2) continue;
+            if (img.channels == 3) {
+                img.set_pixel(i, j, 0, 1.f);
+                img.set_pixel(i, j, 1, 0.f);
+                img.set_pixel(i, j, 2, 0.f);
+            } else {
+                img.set_pixel(i, j, 0, 1.f);
+            }
+        }
+    }
+}
+
+void draw_line(Image& img, int x1, int y1, int x2, int y2) {
+    if (x2 < x1) {
+        swap(x1, x2);
+        swap(y1, y2);
+    }
+    int dx = x2 - x1, dy = y2 - y1;
+    for (int x = x1; x < x2; x++) {
+        int y = y1 + dy * (x - x1) / dx;
+        if (img.channels == 3) {
+            img.set_pixel(x, y, 0, 0.f);
+            img.set_pixel(x, y, 1, 1.f);
+            img.set_pixel(x, y, 2, 0.f);
+        } else {
+            img.set_pixel(x, y, 0, 1.f);
+        }
+    }
+}
+
+// CartesianGrid implementation
+CartesianGrid::CartesianGrid() : cart_comm(MPI_COMM_NULL), rank(-1), size(0), comm_freed(false) {
+    dims[0] = dims[1] = 0;
+    coords[0] = coords[1] = 0;
+    for (int i = 0; i < 4; i++) neighbors[i] = MPI_PROC_NULL;
+}
+
+CartesianGrid::~CartesianGrid() {
+    // Don't free here - call finalize() explicitly before MPI_Finalize
+    // This prevents the "MPI_Comm_free after MPI_FINALIZE" error
+}
+
+void CartesianGrid::finalize() {
+    if (comm_freed) return;
+    if (cart_comm != MPI_COMM_NULL && cart_comm != MPI_COMM_WORLD) {
+        MPI_Comm_free(&cart_comm);
+        cart_comm = MPI_COMM_NULL;
+    }
+    comm_freed = true;
+}
+
+void CartesianGrid::init(int px, int py) {
+    dims[0] = px;
+    dims[1] = py;
+    comm_freed = false;
+    int periods[2] = {0, 0};  // Non-periodic boundaries
+    int reorder = 1;          // Allow MPI to reorder ranks for better topology
+
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, reorder, &cart_comm);
+
+    if (cart_comm != MPI_COMM_NULL) {
+        MPI_Comm_rank(cart_comm, &rank);
+        MPI_Comm_size(cart_comm, &size);
+        MPI_Cart_coords(cart_comm, rank, 2, coords);
+
+        // Get neighbor ranks (MPI_PROC_NULL for boundaries)
+        MPI_Cart_shift(cart_comm, 0, 1, &neighbors[LEFT], &neighbors[RIGHT]);
+        MPI_Cart_shift(cart_comm, 1, 1, &neighbors[TOP], &neighbors[BOTTOM]);
+
+        // Get corner neighbors manually (not provided by MPI_Cart_shift)
+        int corner_coords[2];
+        // Top-left
+        corner_coords[0] = coords[0] - 1;
+        corner_coords[1] = coords[1] - 1;
+        if (corner_coords[0] >= 0 && corner_coords[1] >= 0) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[TOPLEFT]);
+        } else {
+            neighbors[TOPLEFT] = MPI_PROC_NULL;
+        }
+        // Top-right
+        corner_coords[0] = coords[0] + 1;
+        corner_coords[1] = coords[1] - 1;
+        if (corner_coords[0] < dims[0] && corner_coords[1] >= 0) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[TOPRIGHT]);
+        } else {
+            neighbors[TOPRIGHT] = MPI_PROC_NULL;
+        }
+        // Bottom-left
+        corner_coords[0] = coords[0] - 1;
+        corner_coords[1] = coords[1] + 1;
+        if (corner_coords[0] >= 0 && corner_coords[1] < dims[1]) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[BOTTOMLEFT]);
+        } else {
+            neighbors[BOTTOMLEFT] = MPI_PROC_NULL;
+        }
+        // Bottom-right
+        corner_coords[0] = coords[0] + 1;
+        corner_coords[1] = coords[1] + 1;
+        if (corner_coords[0] < dims[0] && corner_coords[1] < dims[1]) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[BOTTOMRIGHT]);
+        } else {
+            neighbors[BOTTOMRIGHT] = MPI_PROC_NULL;
+        }
+    } else {
+        // Fallback: use world communicator (shouldn't happen with valid dims)
+        cart_comm = MPI_COMM_WORLD;
+        MPI_Comm_rank(cart_comm, &rank);
+        MPI_Comm_size(cart_comm, &size);
+        coords[0] = coords[1] = 0;
+        for (int i = 0; i < 8; i++) {
+            neighbors[i] = MPI_PROC_NULL;
+        }
+    }
+}
+
+void CartesianGrid::get_optimal_dims(int nprocs, int& px, int& py) {
+    // Try to make grid as square as possible
+    px = static_cast<int>(sqrt(nprocs));
+    while (nprocs % px != 0) px--;
+    py = nprocs / px;
+
+    // Prefer more rows than columns (images are typically wider)
+    if (px > py) swap(px, py);
+}
+
+CartesianGrid CartesianGrid::create_rank0_only_grid(const CartesianGrid& base_grid) {
+    // Create a grid configuration for rank-0-only processing
+    // All ranks keep their communicator, but set neighbors to MPI_PROC_NULL
+    // This allows the same halo exchange code to work (it becomes a no-op)
+    CartesianGrid rank0_grid;
+
+    rank0_grid.cart_comm = base_grid.cart_comm;  // Reuse the same communicator
+    rank0_grid.rank = base_grid.rank;
+    rank0_grid.size = base_grid.size;
+    rank0_grid.dims[0] = base_grid.dims[0];
+    rank0_grid.dims[1] = base_grid.dims[1];
+    rank0_grid.coords[0] = base_grid.coords[0];
+    rank0_grid.coords[1] = base_grid.coords[1];
+    rank0_grid.comm_freed = false;
+
+    // Set all neighbors to MPI_PROC_NULL so halo exchange becomes a no-op
+    for (int i = 0; i < 8; i++) {
+        rank0_grid.neighbors[i] = MPI_PROC_NULL;
+    }
+
+    return rank0_grid;
+}
+
+// TileInfo implementation
+TileInfo::TileInfo()
+    : x_start(0), x_end(0), y_start(0), y_end(0), width(0), height(0), global_width(0), global_height(0) {}
+
+TileInfo::TileInfo(int gw, int gh, const CartesianGrid& grid) : global_width(gw), global_height(gh) {
+    compute_for_octave(0, gw, gh, grid);
+}
+
+void TileInfo::compute_for_octave(int octave, int base_width, int base_height, const CartesianGrid& grid) {
+    // Image dimensions for this octave
+    global_width = base_width >> octave;  // Divide by 2^octave
+    global_height = base_height >> octave;
+
+    // Compute tile bounds based on process coordinates
+    x_start = (grid.coords[0] * global_width) / grid.dims[0];
+    x_end = ((grid.coords[0] + 1) * global_width) / grid.dims[0];
+    y_start = (grid.coords[1] * global_height) / grid.dims[1];
+    y_end = ((grid.coords[1] + 1) * global_height) / grid.dims[1];
+
+    int tile_width = x_end - x_start;
+    int tile_height = y_end - y_start;
+
+    // Check if tile is too small for distributed processing
+    // If so, allocate zero-size tile (rank-0-only mode)
+    // Rank 0 keeps the full image dimensions
+    if (tile_width < MIN_TILE_SIZE || tile_height < MIN_TILE_SIZE) {
+        if (grid.rank == 0) {
+            // Rank 0 processes the entire image
+            x_start = 0;
+            x_end = global_width;
+            y_start = 0;
+            y_end = global_height;
+            width = global_width;
+            height = global_height;
+        } else {
+            // Other ranks get zero-size tiles
+            x_start = 0;
+            x_end = 0;
+            y_start = 0;
+            y_end = 0;
+            width = 0;
+            height = 0;
+        }
+    } else {
+        // Normal distributed processing
+        width = tile_width;
+        height = tile_height;
+    }
+}
+
+bool TileInfo::is_too_small(int min_size) const { return width < min_size || height < min_size; }
+
+bool TileInfo::is_rank0_only_mode(const CartesianGrid& grid) const {
+    // In rank-0-only mode:
+    // - Rank 0 has the full image (width == global_width && height == global_height)
+    // - Other ranks have zero-size tiles (width == 0 && height == 0)
+    if (grid.rank == 0) {
+        return (width == global_width && height == global_height);
+    } else {
+        return (width == 0 && height == 0);
+    }
+}
+
+// HaloBuffers implementation
+void HaloBuffers::allocate(int _stack_size, int width, int height, int halo_width) {
+    // For odd-sized images split across ranks, neighbors may have different tile sizes
+    // Allocate conservatively - use max possible size to handle any neighbor
+    // Top/bottom: use maximum possible width
+    // Left/right: use maximum possible height
+
+    // Conservative allocation: add safety margin for odd-sized tiles
+    // In practice, difference is at most 1 pixel per direction
+    stack_size = _stack_size;
+    int max_width_variation = 2;  // Account for ±1 pixel difference
+    int max_height_variation = 2;
+
+    // Top/bottom: width elements × halo_width rows (neighbors may have slightly different width)
+    top_send.resize((width + max_width_variation) * halo_width * stack_size);
+    top_recv.resize((width + max_width_variation) * halo_width * stack_size);
+    bottom_send.resize((width + max_width_variation) * halo_width * stack_size);
+    bottom_recv.resize((width + max_width_variation) * halo_width * stack_size);
+
+    // Left/right: halo_width elements × height rows (neighbors may have slightly different height)
+    left_send.resize(halo_width * (height + max_height_variation) * stack_size);
+    left_recv.resize(halo_width * (height + max_height_variation) * stack_size);
+    right_send.resize(halo_width * (height + max_height_variation) * stack_size);
+    right_recv.resize(halo_width * (height + max_height_variation) * stack_size);
+
+    // Corners: halo_width × halo_width regions (small, but needed for diagonal neighbors)
+    int corner_size = halo_width * halo_width * stack_size;
+    topleft_send.resize(corner_size);
+    topleft_recv.resize(corner_size);
+    topright_send.resize(corner_size);
+    topright_recv.resize(corner_size);
+    bottomleft_send.resize(corner_size);
+    bottomleft_recv.resize(corner_size);
+    bottomright_send.resize(corner_size);
+    bottomright_recv.resize(corner_size);
+}
+
+void HaloBuffers::allocate(int width, int height, int halo_width) {
+    allocate(1, width, height, halo_width);  // Default stack size
+}
+
+// Pack boundary data for halo exchange
+void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                     HaloBuffers& buffers) {
+    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_corner(data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers) {
+    int pixels = width * halo_width;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+        // Pack top rows
+        for (int h = 0; h < halo_width; h++) {
+            for (int x = 0; x < width; x++) {
+                buffers.top_send[s * pixels + h * width + x] = stack_data[h * width + x];
+            }
+        }
+        // Pack bottom rows
+        for (int h = 0; h < halo_width; h++) {
+            for (int x = 0; x < width; x++) {
+                buffers.bottom_send[s * pixels + h * width + x] = stack_data[(height - halo_width + h) * width + x];
+            }
+        }
+    }
+}
+
+// Pack boundary data for halo exchange
+void pack_boundaries_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers) {
+    int pixels = halo_width * height;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+        // Pack left columns
+        for (int y = 0; y < height; y++) {
+            for (int h = 0; h < halo_width; h++) {
+                buffers.left_send[s * pixels + y * halo_width + h] = stack_data[y * width + h];
+            }
+        }
+        // Pack right columns
+        for (int y = 0; y < height; y++) {
+            for (int h = 0; h < halo_width; h++) {
+                buffers.right_send[s * pixels + y * halo_width + h] = stack_data[y * width + (width - halo_width + h)];
+            }
+        }
+    }
+}
+
+// Pack corner regions for halo exchange (8-neighbor support)
+void pack_boundaries_corner(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers) {
+    int corner_pixels = halo_width * halo_width;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+
+        // Top-left corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.topleft_send[s * corner_pixels + dy * halo_width + dx] = stack_data[dy * width + dx];
+            }
+        }
+
+        // Top-right corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.topright_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[dy * width + (width - halo_width + dx)];
+            }
+        }
+
+        // Bottom-left corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.bottomleft_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[(height - halo_width + dy) * width + dx];
+            }
+        }
+
+        // Bottom-right corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.bottomright_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[(height - halo_width + dy) * width + (width - halo_width + dx)];
+            }
+        }
+    }
+}
+
+void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                     HaloBuffers& buffers) {
+    pack_boundaries(&data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                              HaloBuffers& buffers) {
+    pack_boundaries_vertical(&data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                                HaloBuffers& buffers) {
+    pack_boundaries_horizontal(&data, width, height, halo_width, tile, buffers);
+}
+
+void pack_boundaries_corner(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers) {
+    pack_boundaries_corner(&data, width, height, halo_width, tile, buffers);
+}
+
+void exchange_halos_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                             const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    // Post receives with correct sizes
+    // Top/bottom: neighbor has same width as me, but might have different height
+    // Left/right: neighbor has same height as me, but might have different width
+    if (grid.neighbors[TOP] != MPI_PROC_NULL) {
+        // Top neighbor sends me their bottom rows for ALL stacked scales
+        // Receive width * halo_width elements per scale
+        MPI_Irecv(buffers.top_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 0,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.bottom_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                  grid.neighbors[BOTTOM], 1, grid.cart_comm, &requests[req_idx++]);
+    }
+
+    // Pack and send
+    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
+
+    if (grid.neighbors[TOP] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.top_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 1,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottom_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                  grid.neighbors[BOTTOM], 0, grid.cart_comm, &requests[req_idx++]);
+    }
+}
+
+// Perform nonblocking halo exchange
+void exchange_halos_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                               const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    // Post receives with correct sizes
+    // Top/bottom: neighbor has same width as me, but might have different height
+    // Left/right: neighbor has same height as me, but might have different width
+    if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
+        // Left neighbor sends me their right columns for all stacked scales
+        MPI_Irecv(buffers.left_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT],
+                  2, grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.right_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[RIGHT],
+                  3, grid.cart_comm, &requests[req_idx++]);
+    }
+
+    // Pack and send
+    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
+
+    if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.left_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT],
+                  3, grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.right_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[RIGHT],
+                  2, grid.cart_comm, &requests[req_idx++]);
+    }
+}
+
+// Exchange corner halos (8-neighbor support)
+void exchange_halos_corners(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                            const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    int corner_size = halo_width * halo_width * buffers.stack_size;
+
+    // Top-left corner
+    if (grid.neighbors[TOPLEFT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.topleft_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPLEFT], 7, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOMRIGHT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottomright_send.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMRIGHT], 7,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+
+    // Top-right corner
+    if (grid.neighbors[TOPRIGHT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.topright_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPRIGHT], 8, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOMLEFT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottomleft_send.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMLEFT], 8, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+
+    // Bottom-left corner
+    if (grid.neighbors[BOTTOMLEFT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.bottomleft_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMLEFT], 9, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[TOPRIGHT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.topright_send.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPRIGHT], 9, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+
+    // Bottom-right corner
+    if (grid.neighbors[BOTTOMRIGHT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.bottomright_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMRIGHT], 10,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[TOPLEFT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.topleft_send.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPLEFT], 10, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+}
+
+void exchange_halos(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos_vertical(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+    exchange_halos_horizontal(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+    exchange_halos_corners(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void exchange_halos_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                             const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos_vertical(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void exchange_halos_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                               const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos_horizontal(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void exchange_halos(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void wait_halos(MPI_Request* requests, int num_requests) { MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE); }
+
+// Scatter image tiles from root to all processes
+void scatter_image_tiles(const float* global_data, float* local_data, int global_width, int global_height,
+                         const TileInfo& tile, const CartesianGrid& grid) {
+    // For simplicity, use root-based scatter
+    // More efficient: use MPI-IO with subarray views (future optimization)
+
+    if (grid.rank == 0) {
+        // Root sends tiles to all processes
+        for (int p = 0; p < grid.size; p++) {
+            int coords[2];
+            MPI_Cart_coords(grid.cart_comm, p, 2, coords);
+
+            // Compute tile bounds for process p
+            int xs = (coords[0] * global_width) / grid.dims[0];
+            int xe = ((coords[0] + 1) * global_width) / grid.dims[0];
+            int ys = (coords[1] * global_height) / grid.dims[1];
+            int ye = ((coords[1] + 1) * global_height) / grid.dims[1];
+            int tw = xe - xs;
+            int th = ye - ys;
+
+            if (p == 0) {
+                // Copy to local buffer
+                for (int y = 0; y < th; y++) {
+                    for (int x = 0; x < tw; x++) {
+                        local_data[y * tw + x] = global_data[(ys + y) * global_width + (xs + x)];
+                    }
+                }
+            } else {
+                // Send to other process
+                vector<float> tile_data(tw * th);
+                for (int y = 0; y < th; y++) {
+                    for (int x = 0; x < tw; x++) {
+                        tile_data[y * tw + x] = global_data[(ys + y) * global_width + (xs + x)];
+                    }
+                }
+                MPI_Send(tile_data.data(), tw * th, MPI_FLOAT, p, 0, grid.cart_comm);
+            }
+        }
+    } else {
+        // Non-root receives its tile
+        MPI_Recv(local_data, tile.width * tile.height, MPI_FLOAT, 0, 0, grid.cart_comm, MPI_STATUS_IGNORE);
+    }
+}
+
+// Gather image tiles from all processes to root
+void gather_image_tiles(const float* local_data, float* global_data, int global_width, int global_height,
+                        const TileInfo& tile, const CartesianGrid& grid) {
+    if (grid.rank == 0) {
+        // Root receives tiles from all processes
+        for (int p = 0; p < grid.size; p++) {
+            int coords[2];
+            MPI_Cart_coords(grid.cart_comm, p, 2, coords);
+
+            // Compute tile bounds for process p
+            int xs = (coords[0] * global_width) / grid.dims[0];
+            int xe = ((coords[0] + 1) * global_width) / grid.dims[0];
+            int ys = (coords[1] * global_height) / grid.dims[1];
+            int ye = ((coords[1] + 1) * global_height) / grid.dims[1];
+            int tw = xe - xs;
+            int th = ye - ys;
+
+            if (p == 0) {
+                // Copy from local buffer
+                for (int y = 0; y < th; y++) {
+                    for (int x = 0; x < tw; x++) {
+                        global_data[(ys + y) * global_width + (xs + x)] = local_data[y * tw + x];
+                    }
+                }
+            } else {
+                // Receive from other process
+                vector<float> tile_data(tw * th);
+                MPI_Recv(tile_data.data(), tw * th, MPI_FLOAT, p, 0, grid.cart_comm, MPI_STATUS_IGNORE);
+                for (int y = 0; y < th; y++) {
+                    for (int x = 0; x < tw; x++) {
+                        global_data[(ys + y) * global_width + (xs + x)] = tile_data[y * tw + x];
+                    }
+                }
+            }
+        }
+    } else {
+        // Non-root sends its tile
+        MPI_Send(local_data, tile.width * tile.height, MPI_FLOAT, 0, 0, grid.cart_comm);
+    }
+}
 
 // Parallel Gaussian blur with MPI halo exchange (OpenMP disabled for debugging)
 Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile, const CartesianGrid& grid) {
@@ -23,11 +1285,11 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     if (size % 2 == 0) size++;
     int center = size / 2;
     int halo_width = center;  // Halo width = kernel radius
-    
+
     // Debug: Print tile info for problematic cases
     // if (tile.global_width < 100 || tile.global_height < 100 || tile.width < 20 || tile.height < 20) {
     //     printf("[Rank %d] blur sigma=%.3f, kernel_size=%d, halo=%d, tile=%dx%d (global=%dx%d)\n",
-    //            grid.rank, sigma, size, halo_width, tile.width, tile.height, 
+    //            grid.rank, sigma, size, halo_width, tile.width, tile.height,
     //            tile.global_width, tile.global_height);
     // }
 
@@ -139,7 +1401,8 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     // ========== HORIZONTAL CONVOLUTION ==========
 
     req_idx = 0;
-    exchange_halos_horizontal((const float*)tmp.data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+    exchange_halos_horizontal((const float*)tmp.data, width, height, halo_width, tile, grid, buffers, requests,
+                              req_idx);
 
     {
         PROFILE_SCOPE("horizontal_interior");
@@ -217,13 +1480,6 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     return filtered;
 }
 
-// Helper function for coordinate mapping (same as sequential version)
-static float map_coordinate(float new_max, float current_max, float coord) {
-    float a = new_max / current_max;
-    float b = -0.5 + a * 0.5;
-    return a * coord + b;
-}
-
 // WARNING: This doesn't consider the boundary halos
 // Parallel image resize with MPI distribution
 // Strategy: Broadcast source image, each rank computes its tile of the output
@@ -231,10 +1487,10 @@ static float map_coordinate(float new_max, float current_max, float coord) {
 // new_w, new_h: Target dimensions
 // tile: Tile info for OUTPUT image (must be pre-computed for new_w, new_h)
 // grid: Cartesian grid
-Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation method,
-                     const TileInfo& tile, const CartesianGrid& grid) {
+Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation method, const TileInfo& tile,
+                      const CartesianGrid& grid) {
     PROFILE_FUNCTION();
-    
+
     // Get source dimensions - need to broadcast from rank 0
     int src_w, src_h, channels;
     if (grid.rank == 0) {
@@ -242,7 +1498,7 @@ Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation 
         src_h = src_img.height;
         channels = src_img.channels;
     }
-    
+
     // Broadcast source dimensions and channels (needed by all ranks)
     {
         PROFILE_MPI("Bcast_dimensions");
@@ -250,51 +1506,51 @@ Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation 
         MPI_Bcast(&src_h, 1, MPI_INT, 0, grid.cart_comm);
         MPI_Bcast(&channels, 1, MPI_INT, 0, grid.cart_comm);
     }
-    
+
     // Verify tile is valid
     if (tile.global_width != new_w || tile.global_height != new_h) {
         if (grid.rank == 0) {
-            printf("ERROR: tile dimensions (%dx%d) don't match target (%dx%d)\n",
-                   tile.global_width, tile.global_height, new_w, new_h);
+            printf("ERROR: tile dimensions (%dx%d) don't match target (%dx%d)\n", tile.global_width, tile.global_height,
+                   new_w, new_h);
         }
         MPI_Abort(grid.cart_comm, 1);
     }
-    
+
     // Each rank allocates its output tile
     Image local_output(tile.width, tile.height, channels);
-    
+
     // For resize, we need access to the entire source image
     // Strategy: Broadcast full source image to all ranks
     // (resize is not the bottleneck, and this is simpler than computing required regions)
-    
+
     Image full_src;
     if (grid.rank == 0) {
         full_src = src_img;
     } else {
         full_src = Image(src_w, src_h, channels);
     }
-    
+
     // Broadcast full source image to all ranks
     {
         PROFILE_SCOPE("broadcast_source_image");
         PROFILE_MPI("Bcast_image_data");
         MPI_Bcast(full_src.data, src_w * src_h * channels, MPI_FLOAT, 0, grid.cart_comm);
     }
-    
+
     // Each rank computes its output tile
     {
         PROFILE_SCOPE("compute_resize");
         for (int local_x = 0; local_x < tile.width; local_x++) {
             // Convert local coordinate to global coordinate in output image
             int global_x = tile.x_start + local_x;
-            
+
             for (int local_y = 0; local_y < tile.height; local_y++) {
                 int global_y = tile.y_start + local_y;
-                
+
                 // Map global output coordinates to source coordinates
                 float src_x = map_coordinate(src_w, new_w, global_x);
                 float src_y = map_coordinate(src_h, new_h, global_y);
-                
+
                 for (int c = 0; c < channels; c++) {
                     float value;
                     if (method == Interpolation::BILINEAR) {
@@ -307,6 +1563,6 @@ Image resize_parallel(const Image& src_img, int new_w, int new_h, Interpolation 
             }
         }
     }
-    
+
     return local_output;
 }
