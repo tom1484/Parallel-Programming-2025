@@ -189,26 +189,26 @@ void exchange_halos_vertical(const float** data, int width, int height, int halo
     // Top/bottom: neighbor has same width as me, but might have different height
     // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[TOP] != MPI_PROC_NULL) {
-        // Top neighbor sends me their bottom rows (width × halo_width elements)
-        // Their width = my width (same x-partition)
-        MPI_Irecv(buffers.top_recv.data(), width * halo_width, MPI_FLOAT, grid.neighbors[TOP], 0, grid.cart_comm,
-                  &requests[req_idx++]);
+           // Top neighbor sends me their bottom rows for ALL stacked scales
+           // Receive width * halo_width elements per scale
+           MPI_Irecv(buffers.top_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 0,
+                   grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
-        MPI_Irecv(buffers.bottom_recv.data(), width * halo_width, MPI_FLOAT, grid.neighbors[BOTTOM], 1, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Irecv(buffers.bottom_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                   grid.neighbors[BOTTOM], 1, grid.cart_comm, &requests[req_idx++]);
     }
 
     // Pack and send
     pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
 
     if (grid.neighbors[TOP] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.top_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[TOP], 1, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Isend(buffers.top_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 1,
+                   grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.bottom_send.data(), width * halo_width, MPI_FLOAT, grid.neighbors[BOTTOM], 0, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Isend(buffers.bottom_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                   grid.neighbors[BOTTOM], 0, grid.cart_comm, &requests[req_idx++]);
     }
 }
 
@@ -219,29 +219,25 @@ void exchange_halos_horizontal(const float** data, int width, int height, int ha
     // Top/bottom: neighbor has same width as me, but might have different height
     // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
-        // Left neighbor sends me their right columns (halo_width × their_height elements)
-        // But wait - if they have different height, the message size is different!
-        // Actually no - they send halo_width × THEIR height, I receive the portion that overlaps with MY height
-        // This is the bug! We need to only send/recv the overlapping portion.
-        // For now, let's assume heights match (they should for same py). Let me reconsider...
-        MPI_Irecv(buffers.left_recv.data(), halo_width * height, MPI_FLOAT, grid.neighbors[LEFT], 2, grid.cart_comm,
-                  &requests[req_idx++]);
+           // Left neighbor sends me their right columns for all stacked scales
+           MPI_Irecv(buffers.left_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT], 2,
+                   grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
-        MPI_Irecv(buffers.right_recv.data(), halo_width * height, MPI_FLOAT, grid.neighbors[RIGHT], 3, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Irecv(buffers.right_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT,
+                   grid.neighbors[RIGHT], 3, grid.cart_comm, &requests[req_idx++]);
     }
 
     // Pack and send
     pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
 
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.left_send.data(), halo_width * height, MPI_FLOAT, grid.neighbors[LEFT], 3, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Isend(buffers.left_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT], 3,
+                   grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
-        MPI_Isend(buffers.right_send.data(), halo_width * height, MPI_FLOAT, grid.neighbors[RIGHT], 2, grid.cart_comm,
-                  &requests[req_idx++]);
+           MPI_Isend(buffers.right_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT,
+                   grid.neighbors[RIGHT], 2, grid.cart_comm, &requests[req_idx++]);
     }
 }
 
