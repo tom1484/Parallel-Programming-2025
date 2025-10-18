@@ -16,6 +16,12 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
 // This is embarrassingly parallel - no communication needed
 ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyramid);
 
+// Parallel version of gradient pyramid generation
+// Each rank processes its local tiles from the Gaussian pyramid
+// Computes gradients using central differences with halo exchange for boundary pixels
+ScaleSpacePyramid generate_gradient_pyramid_parallel(const ScaleSpacePyramid& img_pyramid, const TileInfo& base_tile,
+                                                     const CartesianGrid& grid);
+
 // Parallel version of keypoint detection
 // Each rank scans its local DoG tiles for extrema and refines them
 // Uses interior ownership rule: keeps keypoints 1 pixel inside tile boundary

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 #include <vector>
 
 #include "image.hpp"
@@ -230,6 +231,198 @@ ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyr
     return dog_pyramid;
 }
 
+// Parallel gradient pyramid generation with halo exchange
+// Each rank processes its local tiles with boundary data from neighbors
+ScaleSpacePyramid generate_gradient_pyramid_parallel(const ScaleSpacePyramid& img_pyramid, const TileInfo& base_tile,
+                                                     const CartesianGrid& grid) {
+    PROFILE_FUNCTION();
+
+    // Initialize gradient pyramid structure
+    // Gradient pyramid has same dimensions as Gaussian pyramid
+    // Each image has 2 channels: gx (gradient in x) and gy (gradient in y)
+    ScaleSpacePyramid grad_pyramid = {img_pyramid.num_octaves, img_pyramid.imgs_per_octave,
+                                      vector<vector<Image>>(img_pyramid.num_octaves)};
+
+    // Process each octave
+    for (int octave_idx = 0; octave_idx < grad_pyramid.num_octaves; octave_idx++) {
+        const vector<Image>& img_octave = img_pyramid.octaves[octave_idx];
+        vector<Image>& grad_octave = grad_pyramid.octaves[octave_idx];
+        grad_octave.reserve(grad_pyramid.imgs_per_octave);
+
+        // Get dimensions from first image in this octave
+        int width = 0;
+        int height = 0;
+        if (!img_octave.empty()) {
+            width = img_octave[0].width;
+            height = img_octave[0].height;
+        }
+
+        // Check if this octave is empty (rank-0-only mode)
+        // ALL ranks must agree on whether to process this octave to avoid deadlock
+        int local_size = width * height;
+        int min_size;
+        MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+        bool is_rank0_only = (min_size == 0);
+
+        if (is_rank0_only) {
+            // This octave is processed only by rank 0
+            // Rank 0 computes gradients without halo exchange
+            if (grid.rank == 0 && width > 0 && height > 0) {
+                for (int scale_idx = 0; scale_idx < img_pyramid.imgs_per_octave; scale_idx++) {
+                    const Image& src = img_octave[scale_idx];
+                    Image grad(width, height, 2);
+                    // Compute gradients with edge clamping (no halo exchange needed)
+                    for (int x = 1; x < width - 1; x++) {
+                        for (int y = 1; y < height - 1; y++) {
+                            float gx = (src.get_pixel(x + 1, y, 0) - src.get_pixel(x - 1, y, 0)) * 0.5f;
+                            float gy = (src.get_pixel(x, y + 1, 0) - src.get_pixel(x, y - 1, 0)) * 0.5f;
+                            grad.set_pixel(x, y, 0, gx);
+                            grad.set_pixel(x, y, 1, gy);
+                        }
+                    }
+                    grad_octave.push_back(std::move(grad));
+                }
+            } else {
+                // Non-rank-0 processes create empty gradient images
+                for (int scale_idx = 0; scale_idx < img_pyramid.imgs_per_octave; scale_idx++) {
+                    grad_octave.push_back(Image(0, 0, 2));
+                }
+            }
+            continue;  // Skip to next octave
+        }
+
+        // Normal distributed processing with halo exchange
+        // Compute tile info for this octave
+        TileInfo tile;
+        int base_width = base_tile.global_width * 2;  // Account for initial 2x upscaling
+        int base_height = base_tile.global_height * 2;
+        tile.compute_for_octave(octave_idx, base_width, base_height, grid);
+
+        // Allocate halo buffers for 1-pixel boundary exchange
+        HaloBuffers halo_buffers;
+        halo_buffers.allocate(img_octave.size(), width, height, 1);
+
+        // Exchange halos once per octave for all scales
+        MPI_Request requests[8];
+        int req_idx = 0;
+
+        const float* top_recv = halo_buffers.top_recv.data();
+        const float* bottom_recv = halo_buffers.bottom_recv.data();
+        const float* left_recv = halo_buffers.left_recv.data();
+        const float* right_recv = halo_buffers.right_recv.data();
+
+        bool has_top = (grid.neighbors[TOP] != MPI_PROC_NULL);
+        bool has_bottom = (grid.neighbors[BOTTOM] != MPI_PROC_NULL);
+        bool has_left = (grid.neighbors[LEFT] != MPI_PROC_NULL);
+        bool has_right = (grid.neighbors[RIGHT] != MPI_PROC_NULL);
+
+        // Prepare pointers to all scale images in this octave
+        const float* octave_data[8];  // Max 8 scales (generous upper bound)
+        for (int s = 0; s < img_octave.size(); s++) {
+            octave_data[s] = img_octave[s].data;
+        }
+        // octave_data[0] = img_pyramid.octaves[octave_idx][1].data;
+
+        // Pack and exchange boundaries
+        pack_boundaries(octave_data, width, height, 1, tile, halo_buffers);
+        exchange_halos(octave_data, width, height, 1, tile, grid, halo_buffers, requests, req_idx);
+
+        vector<Image> grads_buffer;  // Temporary buffer for gradient images
+        for (int s = 0; s < img_pyramid.imgs_per_octave; s++) {
+            grads_buffer.push_back(Image(width, height, 2));
+        }
+
+        // Interior pixels
+        for (int scale_idx = 0; scale_idx < img_octave.size(); scale_idx++) {
+            const Image& src = img_octave[scale_idx];
+            Image& grad = grads_buffer[scale_idx];
+            // Compute gradients
+            for (int x = 1; x < width - 1; x++) {
+                for (int y = 1; y < height - 1; y++) {
+                    float gx = (src.get_pixel(x + 1, y, 0) - src.get_pixel(x - 1, y, 0)) * 0.5f;
+                    float gy = (src.get_pixel(x, y + 1, 0) - src.get_pixel(x, y - 1, 0)) * 0.5f;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+        }
+
+        // Exchange halos are complete - proceed to boundary pixels
+        wait_halos(requests, req_idx);
+
+        // Boundary pixels
+        for (int scale_idx = 0; scale_idx < img_octave.size(); scale_idx++) {
+            const Image& src = img_octave[scale_idx];
+            Image& grad = grads_buffer[scale_idx];
+
+            const float* left_halo = &left_recv[scale_idx * height];
+            const float* right_halo = &right_recv[scale_idx * height];
+            const float* top_halo = &top_recv[scale_idx * width];
+            const float* bottom_halo = &bottom_recv[scale_idx * width];
+
+            // Top boundary
+            if (has_top) {
+                int y = 0;
+                int x_start = has_left ? 0 : 1;
+                int x_end = has_right ? width : width - 1;
+                for (int x = x_start; x < x_end; x++) {
+                    float gx, gy;
+                    gx = (src.get_pixel(x + 1, y, 0) - src.get_pixel(x - 1, y, 0)) * 0.5f;
+                    gy = (src.get_pixel(x, y + 1, 0) - top_halo[x]) * 0.5f;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+            // Bottom boundary
+            if (has_bottom) {
+                int y = height - 1;
+                int x_start = has_left ? 0 : 1;
+                int x_end = has_right ? width : width - 1;
+                for (int x = x_start; x < x_end; x++) {
+                    float gx, gy;
+                    gx = (src.get_pixel(x + 1, y, 0) - src.get_pixel(x - 1, y, 0)) * 0.5f;
+                    gy = (bottom_halo[x] - src.get_pixel(x, y - 1, 0)) * 0.5f;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+            // Left boundary
+            if (has_left) {
+                int x = 0;
+                int y_start = has_top ? 0 : 1;
+                int y_end = has_bottom ? height : height - 1;
+                for (int y = y_start; y < y_end; y++) {
+                    float gx, gy;
+                    gx = (src.get_pixel(x + 1, y, 0) - left_halo[y]) * 0.5f;
+                    gy = (src.get_pixel(x, y + 1, 0) - src.get_pixel(x, y - 1, 0)) * 0.5f;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+            // Right boundary
+            if (has_right) {
+                int x = width - 1;
+                int y_start = has_top ? 0 : 1;
+                int y_end = has_bottom ? height : height - 1;
+                for (int y = y_start; y < y_end; y++) {
+                    float gx, gy;
+                    gx = (right_halo[y] - src.get_pixel(x - 1, y, 0)) * 0.5f;
+                    gy = (src.get_pixel(x, y + 1, 0) - src.get_pixel(x, y - 1, 0)) * 0.5f;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+        }
+
+        for (int scale_idx = 0; scale_idx < img_pyramid.imgs_per_octave; scale_idx++) {
+            Image& grad = grads_buffer[scale_idx];
+            grad_pyramid.octaves[octave_idx].push_back(std::move(grad));
+        }
+    }
+
+    return grad_pyramid;
+}
+
 // Helper function to check if a point is extremum using local data and halo regions
 // Returns true if the point is a local extremum in its 3x3x3 neighborhood
 bool check_boundary_extremum(const vector<Image>& octave, int scale, int x, int y, const vector<float>& top_halo,
@@ -343,7 +536,7 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
         MPI_Request requests[8];
         int req_idx = 0;
 
-        const float* octave_data[8]; // Max 8 scales (for typical SIFT settings)
+        const float* octave_data[8];  // Max 8 scales (for typical SIFT settings)
         for (int s = 0; s < num_dog_scales; s++) {
             octave_data[s] = octave[s].data;
         }
@@ -491,74 +684,20 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     // Generate DoG pyramid in parallel (each rank processes its local tiles)
     ScaleSpacePyramid local_dog_pyramid = generate_dog_pyramid_parallel(local_gaussian_pyramid);
 
-    // Gather the pyramids to rank 0 for remaining serial processing
-    // For now, we gather both Gaussian and DoG pyramids
-    ScaleSpacePyramid full_gaussian_pyramid;
+    // Gather DoG pyramid to rank 0 for debugging/verification (optional)
+    // Note: With parallel gradient computation, we no longer need to gather Gaussian pyramid
     ScaleSpacePyramid full_dog_pyramid;
 
     {
-        PROFILE_SCOPE("gather_pyramids");
-        // All ranks should have computed the same number of octaves now
-        // Initialize the full pyramid structures on rank 0
+        PROFILE_SCOPE("gather_dog_pyramid");
+        // Initialize the full DoG pyramid structure on rank 0
         if (grid.rank == 0) {
-            full_gaussian_pyramid.num_octaves = local_gaussian_pyramid.num_octaves;
-            full_gaussian_pyramid.imgs_per_octave = local_gaussian_pyramid.imgs_per_octave;
-            full_gaussian_pyramid.octaves.resize(local_gaussian_pyramid.num_octaves);
-
             full_dog_pyramid.num_octaves = local_dog_pyramid.num_octaves;
             full_dog_pyramid.imgs_per_octave = local_dog_pyramid.imgs_per_octave;
             full_dog_pyramid.octaves.resize(local_dog_pyramid.num_octaves);
         }
 
-        for (int oct = 0; oct < local_gaussian_pyramid.num_octaves; oct++) {
-            // Gather Gaussian pyramid for this octave
-            for (int scale = 0; scale < local_gaussian_pyramid.imgs_per_octave; scale++) {
-                // Get local image (should exist if we computed this many octaves)
-                const Image& local_img = local_gaussian_pyramid.octaves[oct][scale];
-
-                // Check if this octave was processed in rank-0-only mode
-                // (indicated by 0×0 empty images on any rank)
-                // All ranks must agree on this to avoid deadlock
-                int local_size = local_img.width * local_img.height;
-                int min_size;
-                MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
-                bool is_rank0_only = (min_size == 0);
-
-                if (is_rank0_only) {
-                    // For rank-0-only octaves, rank 0 already has the complete image
-                    // No gathering needed; just copy from rank 0's local pyramid
-                    if (grid.rank == 0) {
-                        // Rank 0 already has the full image in local_gaussian_pyramid
-                        // Just copy it to the full pyramid
-                        full_gaussian_pyramid.octaves[oct].push_back(Image(local_img));
-                    }
-                    // Non-rank-0 processes do nothing for this octave
-                } else {
-                    // Normal distributed processing: gather tiles from all ranks
-                    // Compute tile info for this octave
-                    TileInfo tile;
-                    int base_width = base_tile.global_width * 2;  // Account for initial 2x upscaling
-                    int base_height = base_tile.global_height * 2;
-                    tile.compute_for_octave(oct, base_width, base_height, grid);
-
-                    // Prepare full image on rank 0
-                    Image full_img;
-                    if (grid.rank == 0) {
-                        int octave_width = base_width / (1 << oct);
-                        int octave_height = base_height / (1 << oct);
-                        full_img = Image(octave_width, octave_height, 1);
-                    }
-
-                    // Gather tiles - ALL ranks must participate
-                    if (grid.rank == 0) {
-                        gather_image_tiles(local_img.data, full_img.data, full_img.width, full_img.height, tile, grid);
-                        full_gaussian_pyramid.octaves[oct].push_back(std::move(full_img));
-                    } else {
-                        gather_image_tiles(local_img.data, nullptr, 0, 0, tile, grid);
-                    }
-                }
-            }
-
+        for (int oct = 0; oct < local_dog_pyramid.num_octaves; oct++) {
             // Gather DoG pyramid for this octave
             // DoG has one fewer image per octave than Gaussian
             for (int scale = 0; scale < local_dog_pyramid.imgs_per_octave; scale++) {
@@ -625,9 +764,91 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     //     }
     // }
 
+    // Parallel gradient pyramid generation: each rank processes its local tiles with halo exchange
+    ScaleSpacePyramid local_grad_pyramid = generate_gradient_pyramid_parallel(local_gaussian_pyramid, base_tile, grid);
+
     // Parallel keypoint detection: each rank processes its local DoG tiles
     vector<Keypoint> local_keypoints =
         find_keypoints_parallel(local_dog_pyramid, base_tile, grid, num_octaves, contrast_thresh, edge_thresh);
+
+    // Gather gradient pyramid to rank 0 for orientation/descriptor computation
+    ScaleSpacePyramid full_grad_pyramid;
+    {
+        PROFILE_SCOPE("gather_gradient_pyramid");
+
+        // Initialize the full gradient pyramid structure on rank 0
+        if (grid.rank == 0) {
+            full_grad_pyramid.num_octaves = local_grad_pyramid.num_octaves;
+            full_grad_pyramid.imgs_per_octave = local_grad_pyramid.imgs_per_octave;
+            full_grad_pyramid.octaves.resize(local_grad_pyramid.num_octaves);
+        }
+
+        // Gather each octave and scale
+        for (int oct = 0; oct < local_grad_pyramid.num_octaves; oct++) {
+            for (int scale = 0; scale < local_grad_pyramid.imgs_per_octave; scale++) {
+                const Image& local_img = local_grad_pyramid.octaves[oct][scale];
+
+                // Check if this octave was processed in rank-0-only mode
+                int local_size = local_img.width * local_img.height;
+                int min_size;
+                MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
+                bool is_rank0_only = (min_size == 0);
+
+                if (is_rank0_only) {
+                    // Rank 0 already has the full gradient image
+                    if (grid.rank == 0) {
+                        full_grad_pyramid.octaves[oct].push_back(Image(local_img));
+                    }
+                } else {
+                    // Normal distributed processing: gather tiles from all ranks
+                    TileInfo tile;
+                    int base_width = base_tile.global_width * 2;
+                    int base_height = base_tile.global_height * 2;
+                    tile.compute_for_octave(oct, base_width, base_height, grid);
+
+                    // Prepare full image on rank 0
+                    // Note: Gradient images have 2 channels (gx, gy)
+                    Image full_img;
+                    if (grid.rank == 0) {
+                        int octave_width = base_width / (1 << oct);
+                        int octave_height = base_height / (1 << oct);
+                        full_img = Image(octave_width, octave_height, 2);
+                    }
+
+                    // Gather each channel separately (gradient images have 2 channels: gx, gy)
+                    int local_pixels = tile.width * tile.height;
+                    int global_pixels = (grid.rank == 0) ? full_img.width * full_img.height : 0;
+
+                    for (int ch = 0; ch < 2; ch++) {
+                        const float* local_channel_data = local_img.data + ch * local_pixels;
+                        float* global_channel_data = (grid.rank == 0) ? (full_img.data + ch * global_pixels) : nullptr;
+
+                        if (grid.rank == 0) {
+                            gather_image_tiles(local_channel_data, global_channel_data, full_img.width, full_img.height,
+                                               tile, grid);
+                        } else {
+                            gather_image_tiles(local_channel_data, nullptr, 0, 0, tile, grid);
+                        }
+                    }
+
+                    if (grid.rank == 0) {
+                        full_grad_pyramid.octaves[oct].push_back(std::move(full_img));
+                    }
+                }
+            }
+        }
+    }
+
+    // if (grid.rank == 0) {
+    //     // Save gradient images for debugging/verification
+    //     PROFILE_SCOPE("save_gradient_images");
+    //     for (int oct = 0; oct < full_grad_pyramid.num_octaves; oct++) {
+    //         for (int scale = 0; scale < full_grad_pyramid.imgs_per_octave; scale++) {
+    //             string text_filename = "results/tmp/grad_" + to_string(oct) + "_" + to_string(scale) + ".txt";
+    //             full_grad_pyramid.octaves[oct][scale].save_text(text_filename);
+    //         }
+    //     }
+    // }
 
     // Gather keypoints from all ranks to rank 0
     vector<Keypoint> all_keypoints;
@@ -692,20 +913,18 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     // Continue with serial SIFT pipeline on rank 0
     vector<Keypoint> kps;
     if (grid.rank == 0) {
-        // Use gathered keypoints directly
+        // Use gathered keypoints and gradient pyramid
         vector<Keypoint> tmp_kps = all_keypoints;
 
-        // Generate gradient pyramid
-        ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid(full_gaussian_pyramid);
-
-        // Compute orientations and descriptors
+        // Compute orientations and descriptors using the gathered gradient pyramid
         {
             PROFILE_SCOPE("orientation_and_descriptor");
             for (Keypoint& kp_tmp : tmp_kps) {
-                vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid, lambda_ori, lambda_desc);
+                vector<float> orientations =
+                    find_keypoint_orientations(kp_tmp, full_grad_pyramid, lambda_ori, lambda_desc);
                 for (float theta : orientations) {
                     Keypoint kp = kp_tmp;
-                    compute_keypoint_descriptor(kp, theta, grad_pyramid, lambda_desc);
+                    compute_keypoint_descriptor(kp, theta, full_grad_pyramid, lambda_desc);
                     kps.push_back(kp);
                 }
             }
