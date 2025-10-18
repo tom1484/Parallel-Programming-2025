@@ -102,6 +102,29 @@ void CartesianGrid::get_optimal_dims(int nprocs, int& px, int& py) {
     if (px > py) swap(px, py);
 }
 
+CartesianGrid CartesianGrid::create_rank0_only_grid(const CartesianGrid& base_grid) {
+    // Create a grid configuration for rank-0-only processing
+    // All ranks keep their communicator, but set neighbors to MPI_PROC_NULL
+    // This allows the same halo exchange code to work (it becomes a no-op)
+    CartesianGrid rank0_grid;
+    
+    rank0_grid.cart_comm = base_grid.cart_comm;  // Reuse the same communicator
+    rank0_grid.rank = base_grid.rank;
+    rank0_grid.size = base_grid.size;
+    rank0_grid.dims[0] = base_grid.dims[0];
+    rank0_grid.dims[1] = base_grid.dims[1];
+    rank0_grid.coords[0] = base_grid.coords[0];
+    rank0_grid.coords[1] = base_grid.coords[1];
+    rank0_grid.comm_freed = false;
+    
+    // Set all neighbors to MPI_PROC_NULL so halo exchange becomes a no-op
+    for (int i = 0; i < 8; i++) {
+        rank0_grid.neighbors[i] = MPI_PROC_NULL;
+    }
+    
+    return rank0_grid;
+}
+
 // TileInfo implementation
 TileInfo::TileInfo()
     : x_start(0), x_end(0), y_start(0), y_end(0), width(0), height(0), global_width(0), global_height(0) {}
@@ -121,11 +144,49 @@ void TileInfo::compute_for_octave(int octave, int base_width, int base_height, c
     y_start = (grid.coords[1] * global_height) / grid.dims[1];
     y_end = ((grid.coords[1] + 1) * global_height) / grid.dims[1];
 
-    width = x_end - x_start;
-    height = y_end - y_start;
+    int tile_width = x_end - x_start;
+    int tile_height = y_end - y_start;
+
+    // Check if tile is too small for distributed processing
+    // If so, allocate zero-size tile (rank-0-only mode)
+    // Rank 0 keeps the full image dimensions
+    if (tile_width < MIN_TILE_SIZE || tile_height < MIN_TILE_SIZE) {
+        if (grid.rank == 0) {
+            // Rank 0 processes the entire image
+            x_start = 0;
+            x_end = global_width;
+            y_start = 0;
+            y_end = global_height;
+            width = global_width;
+            height = global_height;
+        } else {
+            // Other ranks get zero-size tiles
+            x_start = 0;
+            x_end = 0;
+            y_start = 0;
+            y_end = 0;
+            width = 0;
+            height = 0;
+        }
+    } else {
+        // Normal distributed processing
+        width = tile_width;
+        height = tile_height;
+    }
 }
 
 bool TileInfo::is_too_small(int min_size) const { return width < min_size || height < min_size; }
+
+bool TileInfo::is_rank0_only_mode(const CartesianGrid& grid) const {
+    // In rank-0-only mode:
+    // - Rank 0 has the full image (width == global_width && height == global_height)
+    // - Other ranks have zero-size tiles (width == 0 && height == 0)
+    if (grid.rank == 0) {
+        return (width == global_width && height == global_height);
+    } else {
+        return (width == 0 && height == 0);
+    }
+}
 
 // HaloBuffers implementation
 void HaloBuffers::allocate(int _stack_size, int width, int height, int halo_width) {

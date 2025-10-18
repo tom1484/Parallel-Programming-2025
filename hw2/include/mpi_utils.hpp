@@ -7,6 +7,10 @@
 
 using namespace std;
 
+// Global minimum tile size for distributed processing
+// Tiles smaller than this will be allocated as zero-size (rank-0-only mode)
+constexpr int MIN_TILE_SIZE = 20;
+
 // Neighbor indices for Cartesian grid (8-connected)
 enum Neighbor { TOP = 0, BOTTOM = 1, LEFT = 2, RIGHT = 3, TOPLEFT = 4, TOPRIGHT = 5, BOTTOMLEFT = 6, BOTTOMRIGHT = 7 };
 
@@ -31,6 +35,10 @@ struct CartesianGrid {
 
     // Get optimal grid dimensions for given number of processes
     static void get_optimal_dims(int nprocs, int& px, int& py);
+
+    // Create a rank-0-only grid (for small octaves where only rank 0 processes)
+    // This grid has all neighbors set to MPI_PROC_NULL, making halo exchange a no-op
+    static CartesianGrid create_rank0_only_grid(const CartesianGrid& base_grid);
 };
 
 // Information about a tile owned by a process
@@ -49,6 +57,9 @@ struct TileInfo {
 
     // Check if tile is too small to be useful
     bool is_too_small(int min_size = 32) const;
+
+    // Check if this is rank-0-only mode (zero-size tiles for non-rank-0, full image for rank-0)
+    bool is_rank0_only_mode(const CartesianGrid& grid) const;
 };
 
 // Buffer for halo exchange (8-neighbor support)

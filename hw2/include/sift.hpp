@@ -38,4 +38,14 @@ std::vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, 
                                                               float lambda_ori = LAMBDA_ORI,
                                                               float lambda_desc = LAMBDA_DESC);
 
+// Helper function to gather and save Gaussian pyramid to disk
+// Gathers distributed pyramid tiles to rank 0 and saves each scale to ./results/tmp/<octave>_<scale>.txt
+void save_gaussian_pyramid_parallel(const ScaleSpacePyramid& local_pyramid, const TileInfo& base_tile,
+                                    const CartesianGrid& grid, const std::string& output_dir = "results/tmp");
+
+// Helper function to gather and save gradient pyramid to disk
+// Gathers distributed gradient tiles to rank 0 and saves each scale to ./results/tmp/grad_<octave>_<scale>.txt
+void save_gradient_pyramid_parallel(const ScaleSpacePyramid& local_pyramid, const TileInfo& base_tile,
+                                    const CartesianGrid& grid, const std::string& output_dir = "results/tmp");
+
 #endif  // SIFT_PARALLEL_HPP
