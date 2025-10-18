@@ -122,7 +122,7 @@ void HaloBuffers::allocate(int width, int height, int halo_width) {
 
 void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
                               HaloBuffers& buffers) {
-    int pixels = width * height;
+    int pixels = width * halo_width;
     for (int s = 0; s < buffers.stack_size; s++) {
         const float* stack_data = data[s];
         // Pack top rows
@@ -143,7 +143,7 @@ void pack_boundaries_vertical(const float** data, int width, int height, int hal
 // Pack boundary data for halo exchange
 void pack_boundaries_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
                                 HaloBuffers& buffers) {
-    int pixels = width * height;
+    int pixels = halo_width * height;
     for (int s = 0; s < buffers.stack_size; s++) {
         const float* stack_data = data[s];
         // Pack left columns
@@ -246,23 +246,24 @@ void exchange_halos_horizontal(const float** data, int width, int height, int ha
 }
 
 void exchange_halos(const float** data, int width, int height, int halo_width, const TileInfo& tile,
-                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests) {
-    int req_idx = 0;
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
     exchange_halos_vertical(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
     exchange_halos_horizontal(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 }
 
-void exchange_halos(const float* data, int width, int height, int halo_width, const TileInfo& tile,
-                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests) {
-    exchange_halos(&data, width, height, halo_width, tile, grid, buffers, requests);
-}
 void exchange_halos_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                              const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
     exchange_halos_vertical(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 }
+
 void exchange_halos_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                                const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
     exchange_halos_horizontal(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+}
+
+void exchange_halos(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                    const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    exchange_halos(&data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 }
 
 void wait_halos(MPI_Request* requests, int num_requests) { MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE); }

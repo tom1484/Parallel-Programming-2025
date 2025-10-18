@@ -25,11 +25,11 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     int halo_width = center;  // Halo width = kernel radius
     
     // Debug: Print tile info for problematic cases
-    if (tile.global_width < 100 || tile.global_height < 100 || tile.width < 20 || tile.height < 20) {
-        printf("[Rank %d] blur sigma=%.3f, kernel_size=%d, halo=%d, tile=%dx%d (global=%dx%d)\n",
-               grid.rank, sigma, size, halo_width, tile.width, tile.height, 
-               tile.global_width, tile.global_height);
-    }
+    // if (tile.global_width < 100 || tile.global_height < 100 || tile.width < 20 || tile.height < 20) {
+    //     printf("[Rank %d] blur sigma=%.3f, kernel_size=%d, halo=%d, tile=%dx%d (global=%dx%d)\n",
+    //            grid.rank, sigma, size, halo_width, tile.width, tile.height, 
+    //            tile.global_width, tile.global_height);
+    // }
 
     vector<float> kernel(size);
     float sum = 0;
@@ -60,24 +60,30 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     exchange_halos_vertical((const float*)img.data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 
     // Step 3: Compute interior rows (overlap with communication)
-    int interior_row_start = std::min(std::max(halo_width, 0), height);
-    int interior_row_end = std::max(height - halo_width, interior_row_start);
-    for (int y = interior_row_start; y < interior_row_end; y++) {
-        for (int x = 0; x < width; x++) {
-            float sum = 0;
-            for (int k = 0; k < size; k++) {
-                int dy = -center + k;
-                int src_y = y + dy;
-                // Interior rows, no clamping needed
-                sum += img.data[src_y * width + x] * kernel[k];
+    {
+        PROFILE_SCOPE("vertical_interior");
+        int interior_row_start = std::min(std::max(halo_width, 0), height);
+        int interior_row_end = std::max(height - halo_width, interior_row_start);
+        for (int y = interior_row_start; y < interior_row_end; y++) {
+            for (int x = 0; x < width; x++) {
+                float sum = 0;
+                for (int k = 0; k < size; k++) {
+                    int dy = -center + k;
+                    int src_y = y + dy;
+                    // Interior rows, no clamping needed
+                    sum += img.data[src_y * width + x] * kernel[k];
+                }
+                tmp.data[y * width + x] = sum;
             }
-            tmp.data[y * width + x] = sum;
         }
     }
 
     // Step 4: Wait for halo exchange to complete
     // MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
-    wait_halos(requests, req_idx);
+    {
+        PROFILE_SCOPE("halo_exchange_vertical");
+        wait_halos(requests, req_idx);
+    }
 
     // Step 5: Compute border rows with received halos
     // Top border
@@ -135,24 +141,29 @@ Image gaussian_blur_parallel(const Image& img, float sigma, const TileInfo& tile
     req_idx = 0;
     exchange_halos_horizontal((const float*)tmp.data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 
-    // Compute interior columns (overlap with communication)
-    int interior_col_start = std::min(std::max(halo_width, 0), width);
-    int interior_col_end = std::max(width - halo_width, interior_col_start);
-    for (int y = 0; y < height; y++) {
-        for (int x = interior_col_start; x < interior_col_end; x++) {
-            float sum = 0;
-            for (int k = 0; k < size; k++) {
-                int dx = -center + k;
-                int src_x = x + dx;
-                sum += tmp.data[y * width + src_x] * kernel[k];
+    {
+        PROFILE_SCOPE("horizontal_interior");
+        // Compute interior columns (overlap with communication)
+        int interior_col_start = std::min(std::max(halo_width, 0), width);
+        int interior_col_end = std::max(width - halo_width, interior_col_start);
+        for (int y = 0; y < height; y++) {
+            for (int x = interior_col_start; x < interior_col_end; x++) {
+                float sum = 0;
+                for (int k = 0; k < size; k++) {
+                    int dx = -center + k;
+                    int src_x = x + dx;
+                    sum += tmp.data[y * width + src_x] * kernel[k];
+                }
+                filtered.data[y * width + x] = sum;
             }
-            filtered.data[y * width + x] = sum;
         }
     }
 
     // Wait for halo exchange
-    // MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
-    wait_halos(requests, req_idx);
+    {
+        PROFILE_SCOPE("halo_exchange_horizontal");
+        wait_halos(requests, req_idx);
+    }
 
     // Compute border columns
     // Left border

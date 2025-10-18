@@ -84,10 +84,10 @@ ScaleSpacePyramid generate_gaussian_pyramid_parallel(const Image& img, const Til
         if (global_ok == 0) {
             // Tiles too small - stop distributed processing
             first_small_octave = i;
-            if (grid.rank == 0) {
-                printf("Octave %d and beyond: tiles too small (min=%dx%d), switching to rank-0-only mode\n", i,
-                       tile.width, tile.height);
-            }
+            // if (grid.rank == 0) {
+            //     printf("Octave %d and beyond: tiles too small (min=%dx%d), switching to rank-0-only mode\n", i,
+            //            tile.width, tile.height);
+            // }
             break;
         }
 
@@ -232,10 +232,9 @@ ScaleSpacePyramid generate_dog_pyramid_parallel(const ScaleSpacePyramid& img_pyr
 
 // Helper function to check if a point is extremum using local data and halo regions
 // Returns true if the point is a local extremum in its 3x3x3 neighborhood
-bool check_boundary_extremum(const vector<Image>& octave, int scale, int x, int y,
-                             const vector<float>& top_halo, const vector<float>& bottom_halo,
-                             const vector<float>& left_halo, const vector<float>& right_halo,
-                             int width, int height, bool has_top, bool has_bottom, 
+bool check_boundary_extremum(const vector<Image>& octave, int scale, int x, int y, const vector<float>& top_halo,
+                             const vector<float>& bottom_halo, const vector<float>& left_halo,
+                             const vector<float>& right_halo, int width, int height, bool has_top, bool has_bottom,
                              bool has_left, bool has_right) {
     const Image& img = octave[scale];
     const Image& prev = octave[scale - 1];
@@ -248,7 +247,7 @@ bool check_boundary_extremum(const vector<Image>& octave, int scale, int x, int 
     for (int ds = -1; ds <= 1; ds++) {
         const Image& check_img = (ds == -1) ? prev : ((ds == 0) ? img : next);
         int check_scale = scale + ds;  // Actual scale index in the octave
-        
+
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 int nx = x + dx;
@@ -309,7 +308,7 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
         int min_size;
         MPI_Allreduce(&local_size, &min_size, 1, MPI_INT, MPI_MIN, grid.cart_comm);
         bool is_rank0_only = (min_size == 0);
-        
+
         if (is_rank0_only) {
             // This octave is processed only by rank 0, skip on all other ranks
             // to avoid deadlock in collective operations
@@ -337,119 +336,47 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
         // Total scales to exchange: (imgs_per_octave - 2) * 3 for each direction
         // But we can optimize by exchanging all scales once
         int num_dog_scales = dog_pyramid.imgs_per_octave;
-        
-        vector<float> top_send, top_recv, bottom_send, bottom_recv;
-        vector<float> left_send, left_recv, right_send, right_recv;
-        
-        // Allocate buffers for all DoG scales
-        if (has_top || has_bottom) {
-            top_send.resize(num_dog_scales * width);
-            top_recv.resize(num_dog_scales * width);
-            bottom_send.resize(num_dog_scales * width);
-            bottom_recv.resize(num_dog_scales * width);
-        }
-        if (has_left || has_right) {
-            left_send.resize(num_dog_scales * height);
-            left_recv.resize(num_dog_scales * height);
-            right_send.resize(num_dog_scales * height);
-            right_recv.resize(num_dog_scales * height);
-        }
 
-        // Pack boundary data for ALL scales in this octave at once
+        HaloBuffers halo_buffers;
+        halo_buffers.allocate(num_dog_scales, width, height, 1);  // 1-pixel halo for 3-scale stack
+
+        MPI_Request requests[8];
+        int req_idx = 0;
+
+        const float* octave_data[num_dog_scales];
         for (int s = 0; s < num_dog_scales; s++) {
-            const Image& scale_img = octave[s];
-            
-            if (has_top) {
-                for (int x = 0; x < width; x++) {
-                    top_send[s * width + x] = scale_img.get_pixel(x, 0, 0);
-                }
-            }
-            if (has_bottom) {
-                for (int x = 0; x < width; x++) {
-                    bottom_send[s * width + x] = scale_img.get_pixel(x, height - 1, 0);
-                }
-            }
-            if (has_left) {
-                for (int y = 0; y < height; y++) {
-                    left_send[s * height + y] = scale_img.get_pixel(0, y, 0);
-                }
-            }
-            if (has_right) {
-                for (int y = 0; y < height; y++) {
-                    right_send[s * height + y] = scale_img.get_pixel(width - 1, y, 0);
-                }
-            }
+            octave_data[s] = octave[s].data;
         }
+        pack_boundaries(&octave_data[0], width, height, 1, tile, halo_buffers);
 
         // Exchange halos using MPI (once per octave)
-        {
-            PROFILE_SCOPE("keypoint_halo_exchange");
-            vector<MPI_Request> requests;
-
-            // Post receives first
-            if (has_top) {
-                MPI_Request req;
-                MPI_Irecv(top_recv.data(), num_dog_scales * width, MPI_FLOAT, 
-                         grid.neighbors[TOP], 0, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_bottom) {
-                MPI_Request req;
-                MPI_Irecv(bottom_recv.data(), num_dog_scales * width, MPI_FLOAT,
-                         grid.neighbors[BOTTOM], 1, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_left) {
-                MPI_Request req;
-                MPI_Irecv(left_recv.data(), num_dog_scales * height, MPI_FLOAT,
-                         grid.neighbors[LEFT], 2, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_right) {
-                MPI_Request req;
-                MPI_Irecv(right_recv.data(), num_dog_scales * height, MPI_FLOAT,
-                         grid.neighbors[RIGHT], 3, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-
-            // Post sends
-            if (has_top) {
-                MPI_Request req;
-                MPI_Isend(top_send.data(), num_dog_scales * width, MPI_FLOAT,
-                         grid.neighbors[TOP], 1, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_bottom) {
-                MPI_Request req;
-                MPI_Isend(bottom_send.data(), num_dog_scales * width, MPI_FLOAT,
-                         grid.neighbors[BOTTOM], 0, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_left) {
-                MPI_Request req;
-                MPI_Isend(left_send.data(), num_dog_scales * height, MPI_FLOAT,
-                         grid.neighbors[LEFT], 3, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-            if (has_right) {
-                MPI_Request req;
-                MPI_Isend(right_send.data(), num_dog_scales * height, MPI_FLOAT,
-                         grid.neighbors[RIGHT], 2, grid.cart_comm, &req);
-                requests.push_back(req);
-            }
-
-            // Wait for all communications to complete
-            if (!requests.empty()) {
-                MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
-            }
-        }
+        exchange_halos(&octave_data[0], width, height, 1, tile, grid, halo_buffers, requests, req_idx);
+        wait_halos(requests, req_idx);
 
         // Now process each scale with the exchanged halos available
         // Scan scales (skip first and last scale - need neighbors for 3x3x3 check)
+        const int boundary_ranges[4][2][2] = {
+            {{1, 0}, {width - 2, 0}},                    // Top boundary (y=0, x in [1, width-2])
+            {{1, height - 2}, {width - 2, height - 2}},  // Bottom boundary (y=height-2, x in [1, width-2])
+            {{0, 1}, {0, height - 2}},                   // Left boundary (y in [1, height-2), x=0)
+            {{width - 2, 1}, {width - 2, height - 2}}    // Right boundary (y in [1, height-2), x=width-2)
+        };
+        const int boundary_directions[4][2] = {{1, 0}, {1, 0}, {0, 1}, {0, 1}};
+        const bool boundary_exists[4] = {has_top, has_bottom, has_left, has_right};
+
+        const int corner_points[4][2] = {
+            {0, 0},                  // Top-left
+            {width - 1, 0},          // Top-right
+            {0, height - 1},         // Bottom-left
+            {width - 1, height - 1}  // Bottom-right
+        };
+        const bool corner_exists[4] = {has_top && has_left, has_top && has_right, has_bottom && has_left,
+                                       has_bottom && has_right};
+
         for (int scale = 1; scale < dog_pyramid.imgs_per_octave - 1; scale++) {
             const Image& img = octave[scale];
 
-            // Step 1: Process interior pixels [1, width-1) x [1, height-1)
+            // Step 1: Process interior pixels [1, width-2] x [1, height-2]
             for (int x = 1; x < width - 1; x++) {
                 for (int y = 1; y < height - 1; y++) {
                     // Quick contrast threshold check
@@ -478,80 +405,22 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
             }
 
             // Step 2: Process boundary pixels (edges, excluding corners)
-            // Top boundary (y=0, x in [1, width-1))
-            if (has_top) {
-                for (int x = 1; x < width - 1; x++) {
-                    if (abs(img.get_pixel(x, 0, 0)) < 0.8 * contrast_thresh) continue;
-                    if (check_boundary_extremum(octave, scale, x, 0, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {x, 0, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
+            for (int b = 0; b < 4; b++) {
+                if (!boundary_exists[b]) continue;
 
-            // Bottom boundary (y=height-1, x in [1, width-1))
-            if (has_bottom) {
-                for (int x = 1; x < width - 1; x++) {
-                    if (abs(img.get_pixel(x, height - 1, 0)) < 0.8 * contrast_thresh) continue;
-                    if (check_boundary_extremum(octave, scale, x, height - 1, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {x, height - 1, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
+                int x = boundary_ranges[b][0][0];
+                int y = boundary_ranges[b][0][1];
+                int end_x = boundary_ranges[b][1][0];
+                int end_y = boundary_ranges[b][1][1];
+                int dir_x = boundary_directions[b][0];
+                int dir_y = boundary_directions[b][1];
 
-            // Left boundary (x=0, y in [1, height-1))
-            if (has_left) {
-                for (int y = 1; y < height - 1; y++) {
-                    if (abs(img.get_pixel(0, y, 0)) < 0.8 * contrast_thresh) continue;
-                    if (check_boundary_extremum(octave, scale, 0, y, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {0, y, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
-
-            // Right boundary (x=width-1, y in [1, height-1))
-            if (has_right) {
-                for (int y = 1; y < height - 1; y++) {
-                    if (abs(img.get_pixel(width - 1, y, 0)) < 0.8 * contrast_thresh) continue;
-                    if (check_boundary_extremum(octave, scale, width - 1, y, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {width - 1, y, octave_idx, scale, -1, -1, -1, -1};
+                for (; x <= end_x && y <= end_y; x += dir_x, y += dir_y) {
+                    if (abs(img.get_pixel(x, y, 0)) < 0.8 * contrast_thresh) continue;
+                    if (check_boundary_extremum(octave, scale, x, y, halo_buffers.top_recv, halo_buffers.bottom_recv,
+                                                halo_buffers.left_recv, halo_buffers.right_recv, width, height, has_top,
+                                                has_bottom, has_left, has_right)) {
+                        Keypoint kp = {x, y, octave_idx, scale, -1, -1, -1, -1};
                         bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
                         if (kp_is_valid) {
                             kp.i += tile.x_start;
@@ -567,76 +436,17 @@ vector<Keypoint> find_keypoints_parallel(const ScaleSpacePyramid& dog_pyramid, c
             }
 
             // Step 3: Process corners
-            // Top-left corner (0, 0)
-            if (has_top && has_left) {
-                if (abs(img.get_pixel(0, 0, 0)) >= 0.8 * contrast_thresh) {
-                    if (check_boundary_extremum(octave, scale, 0, 0, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {0, 0, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
+            for (int c = 0; c < 4; c++) {
+                if (!corner_exists[c]) continue;
 
-            // Top-right corner (width-1, 0)
-            if (has_top && has_right) {
-                if (abs(img.get_pixel(width - 1, 0, 0)) >= 0.8 * contrast_thresh) {
-                    if (check_boundary_extremum(octave, scale, width - 1, 0, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {width - 1, 0, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
+                int x = corner_points[c][0];
+                int y = corner_points[c][1];
 
-            // Bottom-left corner (0, height-1)
-            if (has_bottom && has_left) {
-                if (abs(img.get_pixel(0, height - 1, 0)) >= 0.8 * contrast_thresh) {
-                    if (check_boundary_extremum(octave, scale, 0, height - 1, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {0, height - 1, octave_idx, scale, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
-                        if (kp_is_valid) {
-                            kp.i += tile.x_start;
-                            kp.j += tile.y_start;
-                            float min_pix_dist = MIN_PIX_DIST;
-                            float scale_factor = min_pix_dist * pow(2, octave_idx);
-                            kp.x += tile.x_start * scale_factor;
-                            kp.y += tile.y_start * scale_factor;
-                            local_keypoints.push_back(kp);
-                        }
-                    }
-                }
-            }
-
-            // Bottom-right corner (width-1, height-1)
-            if (has_bottom && has_right) {
-                if (abs(img.get_pixel(width - 1, height - 1, 0)) >= 0.8 * contrast_thresh) {
-                    if (check_boundary_extremum(octave, scale, width - 1, height - 1, top_recv, bottom_recv,
-                                               left_recv, right_recv, width, height,
-                                               has_top, has_bottom, has_left, has_right)) {
-                        Keypoint kp = {width - 1, height - 1, octave_idx, scale, -1, -1, -1, -1};
+                if (abs(img.get_pixel(x, y, 0)) >= 0.8 * contrast_thresh) {
+                    if (check_boundary_extremum(octave, scale, x, y, halo_buffers.top_recv, halo_buffers.bottom_recv,
+                                                halo_buffers.left_recv, halo_buffers.right_recv, width, height, has_top,
+                                                has_bottom, has_left, has_right)) {
+                        Keypoint kp = {x, y, octave_idx, scale, -1, -1, -1, -1};
                         bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
                         if (kp_is_valid) {
                             kp.i += tile.x_start;
@@ -796,8 +606,10 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
     //     PROFILE_SCOPE("save_pyramid_images");
     //     for (int oct = 0; oct < full_gaussian_pyramid.num_octaves; oct++) {
     //         for (int scale = 0; scale < full_gaussian_pyramid.imgs_per_octave; scale++) {
-    //             string filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".txt";
-    //             full_gaussian_pyramid.octaves[oct][scale].save_text(filename);
+    //             string text_filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".txt";
+    //             full_gaussian_pyramid.octaves[oct][scale].save_text(text_filename);
+    //             string png_filename = "results/tmp/" + to_string(oct) + "_" + to_string(scale) + ".png";
+    //             full_gaussian_pyramid.octaves[oct][scale].save_png(png_filename);
     //         }
     //     }
     // }
@@ -864,7 +676,7 @@ vector<Keypoint> find_keypoints_and_descriptors_parallel(const Image& img, const
                         grid.cart_comm);
         }
     }
-    
+
     // Export keypoints found in current stage
     // if (grid.rank == 0) {
     //     auto sorted_kps = all_keypoints;
