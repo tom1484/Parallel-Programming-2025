@@ -45,13 +45,50 @@ void CartesianGrid::init(int px, int py) {
         // Get neighbor ranks (MPI_PROC_NULL for boundaries)
         MPI_Cart_shift(cart_comm, 0, 1, &neighbors[LEFT], &neighbors[RIGHT]);
         MPI_Cart_shift(cart_comm, 1, 1, &neighbors[TOP], &neighbors[BOTTOM]);
+
+        // Get corner neighbors manually (not provided by MPI_Cart_shift)
+        int corner_coords[2];
+        // Top-left
+        corner_coords[0] = coords[0] - 1;
+        corner_coords[1] = coords[1] - 1;
+        if (corner_coords[0] >= 0 && corner_coords[1] >= 0) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[TOPLEFT]);
+        } else {
+            neighbors[TOPLEFT] = MPI_PROC_NULL;
+        }
+        // Top-right
+        corner_coords[0] = coords[0] + 1;
+        corner_coords[1] = coords[1] - 1;
+        if (corner_coords[0] < dims[0] && corner_coords[1] >= 0) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[TOPRIGHT]);
+        } else {
+            neighbors[TOPRIGHT] = MPI_PROC_NULL;
+        }
+        // Bottom-left
+        corner_coords[0] = coords[0] - 1;
+        corner_coords[1] = coords[1] + 1;
+        if (corner_coords[0] >= 0 && corner_coords[1] < dims[1]) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[BOTTOMLEFT]);
+        } else {
+            neighbors[BOTTOMLEFT] = MPI_PROC_NULL;
+        }
+        // Bottom-right
+        corner_coords[0] = coords[0] + 1;
+        corner_coords[1] = coords[1] + 1;
+        if (corner_coords[0] < dims[0] && corner_coords[1] < dims[1]) {
+            MPI_Cart_rank(cart_comm, corner_coords, &neighbors[BOTTOMRIGHT]);
+        } else {
+            neighbors[BOTTOMRIGHT] = MPI_PROC_NULL;
+        }
     } else {
         // Fallback: use world communicator (shouldn't happen with valid dims)
         cart_comm = MPI_COMM_WORLD;
         MPI_Comm_rank(cart_comm, &rank);
         MPI_Comm_size(cart_comm, &size);
         coords[0] = coords[1] = 0;
-        neighbors[TOP] = neighbors[BOTTOM] = neighbors[LEFT] = neighbors[RIGHT] = MPI_PROC_NULL;
+        for (int i = 0; i < 8; i++) {
+            neighbors[i] = MPI_PROC_NULL;
+        }
     }
 }
 
@@ -114,10 +151,29 @@ void HaloBuffers::allocate(int _stack_size, int width, int height, int halo_widt
     left_recv.resize(halo_width * (height + max_height_variation) * stack_size);
     right_send.resize(halo_width * (height + max_height_variation) * stack_size);
     right_recv.resize(halo_width * (height + max_height_variation) * stack_size);
+
+    // Corners: halo_width × halo_width regions (small, but needed for diagonal neighbors)
+    int corner_size = halo_width * halo_width * stack_size;
+    topleft_send.resize(corner_size);
+    topleft_recv.resize(corner_size);
+    topright_send.resize(corner_size);
+    topright_recv.resize(corner_size);
+    bottomleft_send.resize(corner_size);
+    bottomleft_recv.resize(corner_size);
+    bottomright_send.resize(corner_size);
+    bottomright_recv.resize(corner_size);
 }
 
 void HaloBuffers::allocate(int width, int height, int halo_width) {
     allocate(1, width, height, halo_width);  // Default stack size
+}
+
+// Pack boundary data for halo exchange
+void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                     HaloBuffers& buffers) {
+    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
+    pack_boundaries_corner(data, width, height, halo_width, tile, buffers);
 }
 
 void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
@@ -161,11 +217,49 @@ void pack_boundaries_horizontal(const float** data, int width, int height, int h
     }
 }
 
-// Pack boundary data for halo exchange
-void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+// Pack corner regions for halo exchange (8-neighbor support)
+void pack_boundaries_corner(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers) {
+    int corner_pixels = halo_width * halo_width;
+    for (int s = 0; s < buffers.stack_size; s++) {
+        const float* stack_data = data[s];
+
+        // Top-left corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.topleft_send[s * corner_pixels + dy * halo_width + dx] = stack_data[dy * width + dx];
+            }
+        }
+
+        // Top-right corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.topright_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[dy * width + (width - halo_width + dx)];
+            }
+        }
+
+        // Bottom-left corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.bottomleft_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[(height - halo_width + dy) * width + dx];
+            }
+        }
+
+        // Bottom-right corner
+        for (int dy = 0; dy < halo_width; dy++) {
+            for (int dx = 0; dx < halo_width; dx++) {
+                buffers.bottomright_send[s * corner_pixels + dy * halo_width + dx] =
+                    stack_data[(height - halo_width + dy) * width + (width - halo_width + dx)];
+            }
+        }
+    }
+}
+
+void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                      HaloBuffers& buffers) {
-    pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
-    pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
+    pack_boundaries(&data, width, height, halo_width, tile, buffers);
 }
 
 void pack_boundaries_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
@@ -178,9 +272,9 @@ void pack_boundaries_horizontal(const float* data, int width, int height, int ha
     pack_boundaries_horizontal(&data, width, height, halo_width, tile, buffers);
 }
 
-void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
-                     HaloBuffers& buffers) {
-    pack_boundaries(&data, width, height, halo_width, tile, buffers);
+void pack_boundaries_corner(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers) {
+    pack_boundaries_corner(&data, width, height, halo_width, tile, buffers);
 }
 
 void exchange_halos_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
@@ -189,26 +283,26 @@ void exchange_halos_vertical(const float** data, int width, int height, int halo
     // Top/bottom: neighbor has same width as me, but might have different height
     // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[TOP] != MPI_PROC_NULL) {
-           // Top neighbor sends me their bottom rows for ALL stacked scales
-           // Receive width * halo_width elements per scale
-           MPI_Irecv(buffers.top_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 0,
-                   grid.cart_comm, &requests[req_idx++]);
+        // Top neighbor sends me their bottom rows for ALL stacked scales
+        // Receive width * halo_width elements per scale
+        MPI_Irecv(buffers.top_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 0,
+                  grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
-           MPI_Irecv(buffers.bottom_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
-                   grid.neighbors[BOTTOM], 1, grid.cart_comm, &requests[req_idx++]);
+        MPI_Irecv(buffers.bottom_recv.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                  grid.neighbors[BOTTOM], 1, grid.cart_comm, &requests[req_idx++]);
     }
 
     // Pack and send
     pack_boundaries_vertical(data, width, height, halo_width, tile, buffers);
 
     if (grid.neighbors[TOP] != MPI_PROC_NULL) {
-           MPI_Isend(buffers.top_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 1,
-                   grid.cart_comm, &requests[req_idx++]);
+        MPI_Isend(buffers.top_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT, grid.neighbors[TOP], 1,
+                  grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[BOTTOM] != MPI_PROC_NULL) {
-           MPI_Isend(buffers.bottom_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
-                   grid.neighbors[BOTTOM], 0, grid.cart_comm, &requests[req_idx++]);
+        MPI_Isend(buffers.bottom_send.data(), width * halo_width * buffers.stack_size, MPI_FLOAT,
+                  grid.neighbors[BOTTOM], 0, grid.cart_comm, &requests[req_idx++]);
     }
 }
 
@@ -219,25 +313,71 @@ void exchange_halos_horizontal(const float** data, int width, int height, int ha
     // Top/bottom: neighbor has same width as me, but might have different height
     // Left/right: neighbor has same height as me, but might have different width
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
-           // Left neighbor sends me their right columns for all stacked scales
-           MPI_Irecv(buffers.left_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT], 2,
-                   grid.cart_comm, &requests[req_idx++]);
+        // Left neighbor sends me their right columns for all stacked scales
+        MPI_Irecv(buffers.left_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT],
+                  2, grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
-           MPI_Irecv(buffers.right_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT,
-                   grid.neighbors[RIGHT], 3, grid.cart_comm, &requests[req_idx++]);
+        MPI_Irecv(buffers.right_recv.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[RIGHT],
+                  3, grid.cart_comm, &requests[req_idx++]);
     }
 
     // Pack and send
     pack_boundaries_horizontal(data, width, height, halo_width, tile, buffers);
 
     if (grid.neighbors[LEFT] != MPI_PROC_NULL) {
-           MPI_Isend(buffers.left_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT], 3,
-                   grid.cart_comm, &requests[req_idx++]);
+        MPI_Isend(buffers.left_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[LEFT],
+                  3, grid.cart_comm, &requests[req_idx++]);
     }
     if (grid.neighbors[RIGHT] != MPI_PROC_NULL) {
-           MPI_Isend(buffers.right_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT,
-                   grid.neighbors[RIGHT], 2, grid.cart_comm, &requests[req_idx++]);
+        MPI_Isend(buffers.right_send.data(), halo_width * height * buffers.stack_size, MPI_FLOAT, grid.neighbors[RIGHT],
+                  2, grid.cart_comm, &requests[req_idx++]);
+    }
+}
+
+// Exchange corner halos (8-neighbor support)
+void exchange_halos_corners(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                            const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
+    int corner_size = halo_width * halo_width * buffers.stack_size;
+
+    // Top-left corner
+    if (grid.neighbors[TOPLEFT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.topleft_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPLEFT], 7, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOMRIGHT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottomright_send.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMRIGHT], 7,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+
+    // Top-right corner
+    if (grid.neighbors[TOPRIGHT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.topright_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPRIGHT], 8, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[BOTTOMLEFT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.bottomleft_send.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMLEFT], 8, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+
+    // Bottom-left corner
+    if (grid.neighbors[BOTTOMLEFT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.bottomleft_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMLEFT], 9, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+    if (grid.neighbors[TOPRIGHT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.topright_send.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPRIGHT], 9, grid.cart_comm,
+                  &requests[req_idx++]);
+    }
+
+    // Bottom-right corner
+    if (grid.neighbors[BOTTOMRIGHT] != MPI_PROC_NULL) {
+        MPI_Irecv(buffers.bottomright_recv.data(), corner_size, MPI_FLOAT, grid.neighbors[BOTTOMRIGHT], 10,
+                  grid.cart_comm, &requests[req_idx++]);
+    }
+    if (grid.neighbors[TOPLEFT] != MPI_PROC_NULL) {
+        MPI_Isend(buffers.topleft_send.data(), corner_size, MPI_FLOAT, grid.neighbors[TOPLEFT], 10, grid.cart_comm,
+                  &requests[req_idx++]);
     }
 }
 
@@ -245,6 +385,7 @@ void exchange_halos(const float** data, int width, int height, int halo_width, c
                     const CartesianGrid& grid, HaloBuffers& buffers, MPI_Request* requests, int& req_idx) {
     exchange_halos_vertical(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
     exchange_halos_horizontal(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
+    exchange_halos_corners(data, width, height, halo_width, tile, grid, buffers, requests, req_idx);
 }
 
 void exchange_halos_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,

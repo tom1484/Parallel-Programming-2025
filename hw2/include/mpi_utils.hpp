@@ -7,8 +7,8 @@
 
 using namespace std;
 
-// Neighbor indices for Cartesian grid
-enum Neighbor { TOP = 0, BOTTOM = 1, LEFT = 2, RIGHT = 3 };
+// Neighbor indices for Cartesian grid (8-connected)
+enum Neighbor { TOP = 0, BOTTOM = 1, LEFT = 2, RIGHT = 3, TOPLEFT = 4, TOPRIGHT = 5, BOTTOMLEFT = 6, BOTTOMRIGHT = 7 };
 
 // 2D Cartesian MPI process grid
 struct CartesianGrid {
@@ -17,7 +17,7 @@ struct CartesianGrid {
     int size;            // Total number of processes
     int dims[2];         // Grid dimensions [Px, Py]
     int coords[2];       // This process's coordinates [px, py]
-    int neighbors[4];    // Neighbor ranks: TOP, BOTTOM, LEFT, RIGHT
+    int neighbors[8];    // Neighbor ranks: TOP, BOTTOM, LEFT, RIGHT, TOPLEFT, TOPRIGHT, BOTTOMLEFT, BOTTOMRIGHT
     bool comm_freed;     // Track if communicator has been freed
 
     CartesianGrid();
@@ -51,13 +51,19 @@ struct TileInfo {
     bool is_too_small(int min_size = 32) const;
 };
 
-// Buffer for halo exchange
+// Buffer for halo exchange (8-neighbor support)
 struct HaloBuffers {
     int stack_size;
+    // Edge buffers (4 cardinal directions)
     vector<float> top_send, top_recv;
     vector<float> bottom_send, bottom_recv;
     vector<float> left_send, left_recv;
     vector<float> right_send, right_recv;
+    // Corner buffers (4 diagonal directions)
+    vector<float> topleft_send, topleft_recv;
+    vector<float> topright_send, topright_recv;
+    vector<float> bottomleft_send, bottomleft_recv;
+    vector<float> bottomright_send, bottomright_recv;
 
     void allocate(int stack_size, int width, int height, int halo_width);
     void allocate(int width, int height, int halo_width);
@@ -66,12 +72,16 @@ struct HaloBuffers {
 // Pack boundary data for sending
 void pack_boundaries(const float** data, int width, int height, int halo_width, const TileInfo& tile,
                      HaloBuffers& buffers);
+void pack_boundaries_corner(const float** data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers);
 void pack_boundaries_vertical(const float** data, int width, int height, int halo_width, const TileInfo& tile,
                               HaloBuffers& buffers);
 void pack_boundaries_horizontal(const float** data, int width, int height, int halo_width, const TileInfo& tile,
                                 HaloBuffers& buffers);
 void pack_boundaries(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                      HaloBuffers& buffers);
+void pack_boundaries_corner(const float* data, int width, int height, int halo_width, const TileInfo& tile,
+                            HaloBuffers& buffers);
 void pack_boundaries_vertical(const float* data, int width, int height, int halo_width, const TileInfo& tile,
                               HaloBuffers& buffers);
 void pack_boundaries_horizontal(const float* data, int width, int height, int halo_width, const TileInfo& tile,
