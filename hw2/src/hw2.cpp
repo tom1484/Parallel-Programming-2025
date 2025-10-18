@@ -44,9 +44,6 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    // Initialize profiler with MPI info
-    Profiler::getInstance().initializeMPI(grid.rank, size);
-
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
 
@@ -61,8 +58,6 @@ int main(int argc, char* argv[]) {
     string input_img = argv[1];
     string output_img = argv[2];
     string output_txt = argv[3];
-
-    auto start = chrono::high_resolution_clock::now();
 
     // Load image on rank 0
     Image img;
@@ -115,19 +110,6 @@ int main(int argc, char* argv[]) {
         result.save(output_img);
     }
     /////////////////////////////////////////////////////////////
-
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double, milli> duration = end - start;
-
-#ifdef DEBUG
-    if (grid.rank == 0) {
-        cerr << "Execution time: " << duration.count() << " ms\n";
-        cerr << "Found " << kps.size() << " keypoints.\n";
-    }
-
-    // Gather profiling data from all ranks and print on rank 0
-    Profiler::getInstance().gatherAndReport();
-#endif
 
     // Free the Cartesian communicator before MPI_Finalize
     grid.finalize();
