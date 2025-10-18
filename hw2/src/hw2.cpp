@@ -30,12 +30,11 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Set OpenMP threads - use 6 threads as specified
-    omp_set_num_threads(6);
-    
+#ifdef DEBUG
     if (rank == 0) {
-        cout << "Running with " << size << " MPI ranks and " << omp_get_max_threads() << " OpenMP threads per rank\n";
+        cerr << "Running with " << size << " MPI ranks and " << omp_get_max_threads() << " OpenMP threads per rank\n";
     }
+#endif
 
     // Create Cartesian grid
     CartesianGrid grid;
@@ -43,9 +42,11 @@ int main(int argc, char* argv[]) {
     CartesianGrid::get_optimal_dims(size, px, py);
     grid.init(px, py);
 
+#ifdef DEBUG
     if (grid.rank == 0) {
-        cout << "Using " << px << " x " << py << " process grid\n";
+        cerr << "Using " << px << " x " << py << " process grid\n";
     }
+#endif
 
     // Initialize profiler with MPI info
     Profiler::getInstance().initializeMPI(grid.rank, size);
@@ -122,13 +123,15 @@ int main(int argc, char* argv[]) {
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double, milli> duration = end - start;
 
+#ifdef DEBUG
     if (grid.rank == 0) {
-        cout << "Execution time: " << duration.count() << " ms\n";
-        cout << "Found " << kps.size() << " keypoints.\n";
+        cerr << "Execution time: " << duration.count() << " ms\n";
+        cerr << "Found " << kps.size() << " keypoints.\n";
     }
 
     // Gather profiling data from all ranks and print on rank 0
     Profiler::getInstance().gatherAndReport();
+#endif
 
     // Free the Cartesian communicator before MPI_Finalize
     grid.finalize();

@@ -259,7 +259,6 @@ ScaleSpacePyramid generate_gradient_pyramid_parallel(const ScaleSpacePyramid& im
             for (int scale_idx = 0; scale_idx < img_pyramid.imgs_per_octave; scale_idx++) {
                 grad_octave.push_back(Image(0, 0, 2));
             }
-            cout << "Skipping rank-0-only octave " << octave_idx << " on rank " << grid.rank << endl;
             continue;
         }
 
@@ -391,10 +390,14 @@ ScaleSpacePyramid generate_gradient_pyramid_parallel(const ScaleSpacePyramid& im
             grad_pyramid.octaves[octave_idx].push_back(std::move(grad));
         }
         
-        cout << "Done processing octave " << octave_idx << " on rank " << grid.rank << endl;
+#ifdef DEBUG
+        cerr << "Done processing octave " << octave_idx << " on rank " << grid.rank << endl;
+#endif
     }
     
-    cout << "Done generating local gradient pyramid on rank " << grid.rank << endl;
+#ifdef DEBUG
+    cerr << "Done generating local gradient pyramid on rank " << grid.rank << endl;
+#endif
 
     return grad_pyramid;
 }

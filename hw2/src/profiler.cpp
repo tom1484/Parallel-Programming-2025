@@ -122,7 +122,7 @@ void Profiler::printAggregatedSection(const string& call_path, const map<string,
     // Print indentation based on depth
     string local_prefix = prefix + (last ? "└─ " : "├─ ");
     // clang-format off
-    cout << left
+    cerr << left
          << local_prefix
          << setw(50 - (data.depth + 1) * 3) << data.display_name
          << right
@@ -315,13 +315,13 @@ void Profiler::gatherAndReport() {
 
         // clang-format off
         // Print aggregated report
-        cout << "\n";
-        cout << "========================================================================================================================\n";
-        cout << "PARALLEL PROFILING REPORT\n";
-        cout << "MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
+        cerr << "\n";
+        cerr << "========================================================================================================================\n";
+        cerr << "PARALLEL PROFILING REPORT\n";
+        cerr << "MPI Ranks: " << mpi_size_ << " | OMP Threads: " 
              << omp_get_max_threads() << "\n";
-        cout << "========================================================================================================================\n";
-        cout << left
+        cerr << "========================================================================================================================\n";
+        cerr << left
              << setw(50) << "Section"
              << right
              << setw(12) << "Total(ms)"
@@ -331,7 +331,7 @@ void Profiler::gatherAndReport() {
              << setw(10) << "Calls"
              << setw(14) << "Avg(ms/call)"
              << "\n";
-        cout << "------------------------------------------------------------------------------------------------------------------------\n";
+        cerr << "------------------------------------------------------------------------------------------------------------------------\n";
         // clang-format on
 
         // Print all top-level sections
@@ -357,11 +357,11 @@ void Profiler::gatherAndReport() {
         double mpi_percent = max_total_time > 0 ? (total_mpi_time / max_total_time * 100.0) : 0.0;
 
         // clang-format off
-        cout << "------------------------------------------------------------------------------------------------------------------------\n";
-        cout << "Total measured time: " << fixed << setprecision(2) << max_total_time << " ms (max across all ranks)\n";
-        cout << "Total MPI communication time: " << fixed << setprecision(2) << total_mpi_time 
+        cerr << "------------------------------------------------------------------------------------------------------------------------\n";
+        cerr << "Total measured time: " << fixed << setprecision(2) << max_total_time << " ms (max across all ranks)\n";
+        cerr << "Total MPI communication time: " << fixed << setprecision(2) << total_mpi_time 
              << " ms (" << fixed << setprecision(1) << mpi_percent << "% of total)\n";
-        cout << "========================================================================================================================\n\n";
+        cerr << "========================================================================================================================\n\n";
         // clang-format on
 
     } else {

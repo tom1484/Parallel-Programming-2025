@@ -9,10 +9,8 @@
 
 using namespace std;
 
-// Enable/disable profiling globally
-#define PROFILING_ENABLED
-
-#ifdef PROFILING_ENABLED
+// Enable/disable profiling globally - only in DEBUG builds
+#ifdef DEBUG
 #define PROFILE_FUNCTION() ScopedTimer _timer(__FUNCTION__)
 #define PROFILE_SCOPE(name) ScopedTimer _timer(name)
 #define PROFILE_MPI(name) ScopedTimer _mpi_timer(string("MPI_") + name)
