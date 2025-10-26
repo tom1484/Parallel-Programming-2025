@@ -5,7 +5,8 @@
 #include <iostream>
 #endif
 
-#include "common.h"
+#include "common.hpp"
+#include "utils.hpp"
 
 using namespace std;
 

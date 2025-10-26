@@ -1,5 +1,5 @@
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef COMMON_HPP
+#define COMMON_HPP
 
 #include <lodepng.h>
 #define GLM_FORCE_SWIZZLE
@@ -25,4 +25,4 @@ typedef glm::dvec3 vec3;  // 3D vector (x, y, z) or (r, g, b)
 typedef glm::dvec4 vec4;  // 4D vector (x, y, z, w)
 typedef glm::dmat3 mat3;  // 3x3 matrix
 
-#endif  // COMMON_H
+#endif  // COMMON_HPP

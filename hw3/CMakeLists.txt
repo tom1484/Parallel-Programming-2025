@@ -23,6 +23,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(SRC
   "${CMAKE_SOURCE_DIR}/lodepng/lodepng.cpp"
   "${CMAKE_SOURCE_DIR}/src/hw3.cu"
+  "${CMAKE_SOURCE_DIR}/src/utils.cu"
 )
 set(CPU_SRC
   "${CMAKE_SOURCE_DIR}/lodepng/lodepng.cpp"
