@@ -12,6 +12,18 @@ from run_testcase import run_build, read_testcase, run_testcase, validate
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Release script for hw3.")
     parser.add_argument(
+        "--start_id",
+        type=int,
+        default=0,
+        help="Starting ID of testcases to run.",
+    )
+    parser.add_argument(
+        "--end_id",
+        type=int,
+        default=99,
+        help="Ending ID of testcases to run.",
+    )
+    parser.add_argument(
         "--cpu",
         action="store_true",
         required=False,
@@ -52,9 +64,12 @@ if __name__ == "__main__":
         if file[-4:] != ".txt":
             continue
         id = int(file[:-4])
-        testcase_list.append(id)
+        if args.start_id <= id <= args.end_id:
+            testcase_list.append(id)
 
     testcase_list.sort()
+    
+    print(f"Running {len(testcase_list)} testcases...")
 
     print("=======================================")
     print("| ID | Time (us) | Error (%) | Passed |")
@@ -92,4 +107,5 @@ if __name__ == "__main__":
             print("|    Yes |")
         else:
             print("|     No |")
-        
+
+    print("=======================================")
