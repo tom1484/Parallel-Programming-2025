@@ -38,12 +38,6 @@ def parse_arguments():
         default="results",
         help="Directory to store output results.",
     )
-    parser.add_argument(
-        "--save_log",
-        action="store_true",
-        required=False,
-        help="Save the output log to a file.",
-    )
     return parser.parse_args()
 
 
@@ -73,7 +67,7 @@ if __name__ == "__main__":
             debug=args.debug,
             cpu=args.cpu,
             output_dir=args.output_dir,
-            save_log=args.save_log,
+            save_log=True,
             data=testcase_data,
         )
 
