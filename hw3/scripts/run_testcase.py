@@ -191,7 +191,7 @@ def validate(output_path: str, valid_path: str) -> float:
     valid = valid.astype("float32")
 
     diff = cv2.absdiff(output, valid).sum()
-    err = diff / output.sum()
+    err = diff / valid.sum()
     
     return err * 100.0
 
