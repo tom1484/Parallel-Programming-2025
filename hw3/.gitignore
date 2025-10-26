@@ -1,0 +1,18 @@
+# Build artifacts
+.cache/
+build/
+validate
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Other temporary or generated files
+*.log
+*.swp
+*~
+
+# Project specific ignores
+results/
+b10901002/
+b10901002.tar
