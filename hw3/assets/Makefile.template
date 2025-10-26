@@ -9,9 +9,8 @@ LODEPNG_DIR = /work/b10502010/pp25/hw3/lodepng
 GLM_DIR = /work/b10502010/pp25/hw3/glm
 
 # Compiler flags
-CPPFLAGS = -I$(LODEPNG_DIR) -I$(GLM_DIR)/include
-CXXDEFINES = {cxx_defines}
-CXXFLAGS = {cxx_flags}
+CXXDEFINES = -DSUBMIT {cxx_defines}
+CXXFLAGS = -I$(LODEPNG_DIR) -I$(GLM_DIR)/include
 NVCCFLAGS = -std=c++17 -O3 -arch=sm_70 -Xptxas=-v
 
 # Source files
@@ -25,13 +24,7 @@ TARGET_CPU = hw3_cpu
 all: $(TARGET_CUDA)
 
 $(TARGET_CUDA): hw3.cu $(LODEPNG)
-	$(NVCC) $(NVCCFLAGS) $(CPPFLAGS) hw3.cu $(LODEPNG) -o $(TARGET_CUDA)
-
-# CPU version
-cpu: $(TARGET_CPU)
-
-$(TARGET_CPU): hw3_cpu.cpp $(LODEPNG)
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) hw3_cpu.cpp $(LODEPNG) -o $(TARGET_CPU)
+	$(NVCC) $(NVCCFLAGS) $(CXXFLAGS) $(CXXDEFINES) hw3.cu $(LODEPNG) -o $(TARGET_CUDA)
 
 # Clean
 clean:

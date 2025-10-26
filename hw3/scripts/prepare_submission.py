@@ -32,31 +32,20 @@ def extract_cmake_flags(build_dir="build/Release"):
     flags_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/flags.make")
     link_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/link.txt")
     
-    cxx_flags = ""
+    cuda_defines = ""
     cxx_defines = ""
-    link_flags = ""
     
     # Read flags.make
     flags_content = read_file(flags_file)
     for line in flags_content.split('\n'):
-        if line.startswith('CXX_FLAGS ='):
-            cxx_flags = line.replace('CXX_FLAGS =', '').strip()
-        elif line.startswith('CXX_DEFINES ='):
-            cxx_defines = line.replace('CXX_DEFINES =', '').strip()
-    
-    # Read link.txt to extract libraries
-    link_content = read_file(link_file)
-    if link_content:
-        # Extract library flags from link command
-        if 'libgomp.so' in link_content or '-fopenmp' in cxx_flags:
-            link_flags += " -fopenmp"
-        if 'libpthread' in link_content or 'pthread' in link_content:
-            link_flags += " -lpthread"
+        if line.startswith('CUDADEFINES ='):
+            cuda_defines = line.replace('CUDADEFINES =', '').strip()
+        elif line.startswith('CXXDEFINES ='):
+            cxx_defines = line.replace('CXXDEFINES =', '').strip()
     
     return {
-        'cxx_flags': cxx_flags,
-        'cxx_defines': cxx_defines,
-        'link_flags': link_flags.strip()
+        'cuda_defines': cuda_defines,
+        'cxx_defines': cxx_defines
     }
 
 def remove_local_includes(content, local_headers):
@@ -228,9 +217,8 @@ def main():
         raise FileNotFoundError("Makefile.template not found.")
     
     makefile_content = makefile_template.format(
-        cxx_flags=cmake_flags['cxx_flags'],
+        cuda_defines=cmake_flags['cuda_defines'],
         cxx_defines=cmake_flags['cxx_defines'],
-        link_flags=cmake_flags['link_flags']
     )
     
     makefile_output = os.path.join(submission_dir, "Makefile")
