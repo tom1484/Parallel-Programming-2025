@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+python3 scripts/run_testcase.py --output_dir results/benchmark

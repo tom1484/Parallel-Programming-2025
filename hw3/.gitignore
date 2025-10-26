@@ -3,6 +3,9 @@
 build/
 validate
 
+# python cache
+__pycache__/
+
 # Operating System files
 .DS_Store
 Thumbs.db

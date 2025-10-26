@@ -1,4 +1,3 @@
 module purge
-module load twcc
+module load cmake
 module load cuda
-module load python
