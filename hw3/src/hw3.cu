@@ -10,16 +10,15 @@
 
 using namespace std;
 
-unsigned int num_threads;  // number of thread
-unsigned int width;        // image width
-unsigned int height;       // image height
+uint width;        // image width
+uint height;       // image height
 vec2 iResolution;          // just for convenience of calculation
 
 vec3 camera_pos;  // camera position in 3D space (x, y, z)
 vec3 target_pos;  // target position in 3D space (x, y, z)
 
-unsigned char* raw_image;  // 1D image
-unsigned char** image;     // 2D image
+uchar* raw_image;  // 1D image
+uchar** image;     // 2D image
 
 int main(int argc, char** argv) {
 #ifndef SUBMIT
@@ -34,14 +33,14 @@ int main(int argc, char** argv) {
     width = atoi(argv[7]);
     height = atoi(argv[8]);
 
-    double total_pixel = width * height;
-    double current_pixel = 0;
+    float total_pixel = width * height;
+    float current_pixel = 0;
 
     iResolution = vec2(width, height);
 
     // Create image
-    raw_image = new unsigned char[width * height * 4];
-    image = new unsigned char*[height];
+    raw_image = new uchar[width * height * 4];
+    image = new uchar*[height];
 
     for (int i = 0; i < height; ++i) {
         image[i] = raw_image + i * width * 4;
