@@ -43,6 +43,12 @@ def parse_arguments():
         required=False,
         help="Save the output log to a file.",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        required=False,
+        help="Enable profiling mode.",
+    )
     return parser.parse_args()
 
 
@@ -86,6 +92,7 @@ def run_testcase(
     cpu: bool,
     output_dir: str,
     save_log: bool,
+    profile: bool,
     data: dict,
 ) -> dict:
     pos = data["pos"]
@@ -118,6 +125,16 @@ def run_testcase(
         log_path = os.path.join(output_dir, f"{id:02d}.log")
         if os.path.exists(log_path):
             os.remove(log_path)
+    
+    prof_path = None
+    prof_log_path = None  # The human-readable log file for nvprof
+    if profile:
+        prof_path = os.path.join(output_dir, f"{id:02d}.prof")
+        if os.path.exists(prof_path):
+            os.remove(prof_path)
+        prof_log_path = os.path.join(output_dir, f"{id:02d}.prof.log")
+        if os.path.exists(prof_log_path):
+            os.remove(prof_log_path)
 
     command = [
         executable_path,
@@ -131,6 +148,9 @@ def run_testcase(
         height,
         output_path,
     ]
+    if profile:
+        command = ["nvprof", "--log-file", prof_log_path, "--output-profile", prof_path] + command
+
     srun_command = f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
     command = srun_command + command
     
@@ -191,6 +211,7 @@ if __name__ == "__main__":
         cpu=args.cpu,
         output_dir=args.output_dir,
         save_log=args.save_log,
+        profile=args.profile,
         data=testcase_data,
     )
     

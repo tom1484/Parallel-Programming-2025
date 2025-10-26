@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-python3 scripts/run_testcase.py --output_dir results/benchmark
+python3 scripts/benchmark.py --output_dir results/benchmark

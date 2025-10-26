@@ -56,7 +56,9 @@ if __name__ == "__main__":
 
     testcase_list.sort()
 
-    print("| ID | Time (us) | Error (%) |")
+    print("=======================================")
+    print("| ID | Time (us) | Error (%) | Passed |")
+    print("---------------------------------------")
 
     for id in testcase_list:
         testcase_file = os.path.join(args.input_dir, f"{id:02d}.txt")
@@ -68,6 +70,7 @@ if __name__ == "__main__":
             cpu=args.cpu,
             output_dir=args.output_dir,
             save_log=True,
+            profile=False,
             data=testcase_data,
         )
 
@@ -78,8 +81,15 @@ if __name__ == "__main__":
         else:
             print(f"|       N/A ", end="")
 
+        error_percentage = 100.0
         if result["success"]:
             error_percentage = validate(result["output_path"], result["valid_path"])
-            print(f"| {error_percentage:9.4f} |")
+            print(f"| {error_percentage:9.4f} ", end="")
         else:
-            print(f"|       N/A |")
+            print(f"|       N/A ", end="")
+
+        if error_percentage < 3.0:
+            print("|    Yes |")
+        else:
+            print("|     No |")
+        
