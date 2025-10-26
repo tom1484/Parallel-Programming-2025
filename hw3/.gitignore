@@ -16,3 +16,6 @@ Thumbs.db
 results/
 b10901002/
 b10901002.tar
+
+# LFS not working properly
+assets/testcases/
