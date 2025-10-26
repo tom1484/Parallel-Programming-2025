@@ -22,8 +22,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Specify source files for CUDA
 set(SRC
   "${CMAKE_SOURCE_DIR}/lodepng/lodepng.cpp"
+  "${CMAKE_SOURCE_DIR}/src/global.cpp"
   "${CMAKE_SOURCE_DIR}/src/hw3.cu"
   "${CMAKE_SOURCE_DIR}/src/utils.cu"
+  "${CMAKE_SOURCE_DIR}/src/schedule.cu"
+  "${CMAKE_SOURCE_DIR}/src/render.cu"
 )
 set(CPU_SRC
   "${CMAKE_SOURCE_DIR}/lodepng/lodepng.cpp"

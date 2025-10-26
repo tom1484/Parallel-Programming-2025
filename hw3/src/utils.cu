@@ -1,6 +1,13 @@
 #include <cstdio>
 
+#include "common.hpp"
 #include "utils.hpp"
+
+// Save raw_image to PNG file
+void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height) {
+    unsigned error = lodepng_encode32_file(filename, raw_image, width, height);
+    if (error) printf("png error %u: %s\n", error, lodepng_error_text(error));
+}
 
 void print_device_info() {
     int deviceCount = 0;
