@@ -12,47 +12,48 @@ import re
 import shutil
 from pathlib import Path
 
+
 def read_file(filepath):
     """Read file content safely."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         print(f"Warning: File {filepath} not found")
         return ""
 
+
 def write_file(filepath, content):
     """Write file content safely."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(content)
+
 
 def extract_cmake_flags(build_dir="build/Release"):
     """Extract compiler flags from CMake-generated files."""
     flags_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/flags.make")
     link_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/link.txt")
-    
+
     cuda_defines = ""
     cxx_defines = ""
-    
+
     # Read flags.make
     flags_content = read_file(flags_file)
-    for line in flags_content.split('\n'):
-        if line.startswith('CUDADEFINES ='):
-            cuda_defines = line.replace('CUDADEFINES =', '').strip()
-        elif line.startswith('CXXDEFINES ='):
-            cxx_defines = line.replace('CXXDEFINES =', '').strip()
-    
-    return {
-        'cuda_defines': cuda_defines,
-        'cxx_defines': cxx_defines
-    }
+    for line in flags_content.split("\n"):
+        if line.startswith("CUDADEFINES ="):
+            cuda_defines = line.replace("CUDADEFINES =", "").strip()
+        elif line.startswith("CXXDEFINES ="):
+            cxx_defines = line.replace("CXXDEFINES =", "").strip()
+
+    return {"cuda_defines": cuda_defines, "cxx_defines": cxx_defines}
+
 
 def remove_local_includes(content, local_headers):
     """Remove #include directives for local header files."""
-    lines = content.split('\n')
+    lines = content.split("\n")
     filtered_lines = []
-    
+
     for line in lines:
         stripped = line.strip()
         # Check if this is a local include
@@ -65,11 +66,12 @@ def remove_local_includes(content, local_headers):
                 # Check if it's one of our local headers
                 if any(header.endswith(included_file) for header in local_headers):
                     is_local_include = True
-        
+
         if not is_local_include:
             filtered_lines.append(line)
-    
-    return '\n'.join(filtered_lines)
+
+    return "\n".join(filtered_lines)
+
 
 def sort_headers_by_dependency(header_contents):
     """Sort headers based on dependencies to ensure correct order."""
@@ -80,7 +82,7 @@ def sort_headers_by_dependency(header_contents):
     in_degree = defaultdict(int)
 
     for header, content in header_contents.items():
-        lines = content.split('\n')
+        lines = content.split("\n")
         for line in lines:
             stripped = line.strip()
             if stripped.startswith('#include "'):
@@ -111,31 +113,39 @@ def sort_headers_by_dependency(header_contents):
 
     return sorted_headers
 
+
 def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
     headers = [
-        "common.h",
+        "common.hpp",
+        "render.hpp",
+        "schedule.hpp",
+        "utils.hpp",
     ]
-    
+
     sources = [
-        "hw3.cu"
+        "global.cpp",
+        "hw3.cu",
+        "render.cu",
+        "schedule.cu",
+        "utils.cu",
     ]
-    
+
     merged_content = []
-    
+
     # Add header comment
     merged_content.append("// Merged submission file for homework assignment")
     merged_content.append("// Generated automatically - do not edit manually")
     merged_content.append("")
-    
+
     # Collect all local header filenames for filtering
     local_headers = headers.copy()
-    
+
     # Process headers first
     merged_content.append("// ========== HEADER FILES ==========")
     merged_content.append("")
-    
+
     header_contents = {}
     for header in headers:
         header_file_path = f"include/{header}"
@@ -151,34 +161,35 @@ def merge_files():
         content = header_contents[header]
         # Remove include guards and local includes
         content = remove_local_includes(content, local_headers)
-        
+
         merged_content.append(f"// From {header}")
         merged_content.append(content)
         merged_content.append("")
-    
+
     # Process source files
     merged_content.append("// ========== SOURCE FILES ==========")
     merged_content.append("")
-    
+
     for source_file in sources:
         source_file_path = f"src/{source_file}"
         if os.path.exists(source_file_path):
             print(f"Processing source: {source_file}")
             content = read_file(source_file_path)
-            
+
             # Remove local includes
             content = remove_local_includes(content, local_headers)
-            
+
             merged_content.append(f"// From {source_file}")
             merged_content.append(content)
             merged_content.append("")
-    
-    return '\n'.join(merged_content)
+
+    return "\n".join(merged_content)
+
 
 def main():
     """Main function to prepare submission."""
     print("Preparing submission...")
-    
+
     # Create submission directory
     submission_dir = "b10901002"
     if os.path.exists(submission_dir):
@@ -191,21 +202,21 @@ def main():
 
     os.makedirs(submission_dir, exist_ok=True)
     print(f"Created {submission_dir} directory")
-    
+
     # Extract compiler flags
     print("Extracting compiler flags from CMake...")
     cmake_flags = extract_cmake_flags()
     print(f"Extracted flags: {cmake_flags}")
-    
+
     # Merge source files
     print("Merging header and source files...")
     merged_cpp = merge_files()
-    
+
     # Write merged C++ file
     cpp_output = os.path.join(submission_dir, "hw3.cu")
     write_file(cpp_output, merged_cpp)
     print(f"Created {cpp_output}")
-    
+
     # Create Makefile
     print("Creating Makefile...")
     # Try to use Makefile.template if it exists, otherwise use built-in template
@@ -215,16 +226,16 @@ def main():
         print("Using Makefile.template")
     else:
         raise FileNotFoundError("Makefile.template not found.")
-    
+
     makefile_content = makefile_template.format(
-        cuda_defines=cmake_flags['cuda_defines'],
-        cxx_defines=cmake_flags['cxx_defines'],
+        cuda_defines=cmake_flags["cuda_defines"],
+        cxx_defines=cmake_flags["cxx_defines"],
     )
-    
+
     makefile_output = os.path.join(submission_dir, "Makefile")
     write_file(makefile_output, makefile_content)
     print(f"Created {makefile_output}")
-    
+
     # Copy report.pdf if exists
     report_src = "assets/report.pdf"
     report_dst = os.path.join(submission_dir, "report.pdf")
@@ -233,7 +244,7 @@ def main():
         print(f"Copied report to {report_dst}")
     else:
         print("Warning: report.pdf not found in assets/")
-    
+
     print("\nSubmission preparation complete!")
     print(f"Files created in {submission_dir}/:")
     for file in os.listdir(submission_dir):
@@ -243,10 +254,11 @@ def main():
             print(f"  {file} ({size} bytes)")
         else:
             print(f"  {file}/ (directory)")
-    
+
     print(f"\nTo build: cd {submission_dir} && make")
     print(f"To test: cd {submission_dir} && make test")
     print("Note: Release configuration is used by default")
+
 
 if __name__ == "__main__":
     main()
