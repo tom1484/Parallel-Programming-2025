@@ -115,7 +115,7 @@ def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
     headers = [
-        # TODO:
+        "common.h",
     ]
     
     sources = [
