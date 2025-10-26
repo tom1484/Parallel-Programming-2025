@@ -150,9 +150,9 @@ def run_testcase(
     ]
     if profile:
         command = ["nvprof", "--log-file", prof_log_path, "--output-profile", prof_path] + command
-
-    srun_command = f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
-    command = srun_command + command
+    if not cpu:
+        srun_command = f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
+        command = srun_command + command
     
     log = ""
     if save_log:
