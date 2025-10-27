@@ -86,6 +86,7 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             save_log=True,
             profile=False,
+            dry_run=False,
             data=testcase_data,
         )
 

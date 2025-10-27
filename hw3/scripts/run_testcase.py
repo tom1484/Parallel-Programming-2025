@@ -49,6 +49,12 @@ def parse_arguments():
         required=False,
         help="Enable profiling mode.",
     )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        required=False,
+        help="Perform a dry run without executing the test case.",
+    )
     return parser.parse_args()
 
 
@@ -93,6 +99,7 @@ def run_testcase(
     output_dir: str,
     save_log: bool,
     profile: bool,
+    dry_run: bool,
     data: dict,
 ) -> dict:
     pos = data["pos"]
@@ -101,7 +108,7 @@ def run_testcase(
     height = data["height"]
     timelimit = data["timelimit"]
     valid = data["valid"]
-    
+
     result = {
         "output_path": None,
         "log_path": None,
@@ -125,7 +132,7 @@ def run_testcase(
         log_path = os.path.join(output_dir, f"{id:02d}.log")
         if os.path.exists(log_path):
             os.remove(log_path)
-    
+
     prof_path = None
     prof_log_path = None  # The human-readable log file for nvprof
     if profile:
@@ -149,20 +156,37 @@ def run_testcase(
         output_path,
     ]
     if profile:
-        command = ["nvprof", "--log-file", prof_log_path, "--output-profile", prof_path] + command
+        command = [
+            "nvprof",
+            "--log-file",
+            prof_log_path,
+            "--export-profile",
+            prof_path,
+            "--cpu-profiling",
+            "on",
+        ] + command
     if not cpu:
-        srun_command = f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
+        srun_command = (
+            f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
+        )
         command = srun_command + command
-    
+
+    if dry_run:
+        print("Dry run command:")
+        print(" ".join(command))
+        return result
+
     log = ""
     if save_log:
         with open(log_path, "w") as log_file:
-            proc_result = subprocess.run(command, stdout=log_file, stderr=subprocess.STDOUT)
+            proc_result = subprocess.run(
+                command, stdout=log_file, stderr=subprocess.STDOUT
+            )
         with open(log_path, "r") as log_file:
             log = log_file.read()
     else:
         proc_result = subprocess.run(command, check=True)
-        log = proc_result.stdout.decode('utf-8') if proc_result.stdout else ""
+        log = proc_result.stdout.decode("utf-8") if proc_result.stdout else ""
 
     if proc_result.returncode != 0:
         return result
@@ -170,10 +194,10 @@ def run_testcase(
     result["output_path"] = output_path
     if save_log:
         result["log_path"] = log_path
-    
+
     if os.path.exists(output_path):
         result["success"] = True
-    
+
     elapsed_log = re.search(r"Elapsed: *([0-9.]+) us", log)
     if elapsed_log:
         result["elapsed_time"] = int(elapsed_log.group(1))
@@ -186,13 +210,13 @@ def validate(output_path: str, valid_path: str) -> float:
     valid = cv2.imread(valid_path)
     if output is None or valid is None:
         raise ValueError("Output or valid image could not be read.")
-    
+
     output = output.astype("float32")
     valid = valid.astype("float32")
 
     diff = cv2.absdiff(output, valid).sum()
     err = diff / valid.sum()
-    
+
     return err * 100.0
 
 
@@ -212,12 +236,13 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         save_log=args.save_log,
         profile=args.profile,
+        dry_run=args.dry_run,
         data=testcase_data,
     )
-    
+
     if result["elapsed_time"] is not None:
         print(f"Elapsed time: {result['elapsed_time']} us")
-    
+
     if result["success"]:
         error_percentage = validate(result["output_path"], result["valid_path"])
         print(f"Validation error: {error_percentage:.4f}%")
