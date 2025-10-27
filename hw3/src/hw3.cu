@@ -5,6 +5,10 @@
 #include <iostream>
 #endif
 
+#ifdef DEBUG
+#include <thread>
+#endif
+
 #include "common.hpp"
 #include "render.hpp"
 #include "schedule.hpp"
@@ -38,7 +42,6 @@ int main(int argc, char** argv) {
     height = atoi(argv[8]);
 
     float total_pixel = width * height;
-    float current_pixel = 0;
 
     iResolution = vec2(width, height);
 
@@ -52,10 +55,17 @@ int main(int argc, char** argv) {
 
     schedule_dim(width, height);
 #ifdef DEBUG
-    cout << "Grid: (" << dim.n_blocks_x << ", " << dim.n_blocks_y << "), Block: (" << dim.n_threads_x << ", "
-         << dim.n_threads_y << ")" << endl;
+    cout << "Size: (" << width << ", " << height << ")" << endl;
+    cout << "Grid: (" << dim.n_blocks_x << ", " << dim.n_blocks_y << ")" << endl;
+    cout << "Block: (" << dim.n_threads_x << ", " << dim.n_threads_y << ")" << endl;
+    cout << "Batch: (" << dim.batch_size_x << ", " << dim.batch_size_y << ")" << endl;
 #endif
     copy_constants_to_device();
+
+#ifdef DEBUG
+    ProgressBar _bar(width * height, false);
+    float _current_pixel = 0;
+#endif
 
     for (int bx = 0; bx < width; bx += dim.batch_size_x) {
         for (int by = 0; by < height; by += dim.batch_size_y) {
@@ -65,9 +75,16 @@ int main(int argc, char** argv) {
             }
             int valid_size_x = min(dim.batch_size_x, (int)(width - bx));
             int valid_size_y = min(dim.batch_size_y, (int)(height - by));
-            render_batch(buffer, valid_size_x, valid_size_y);
+            render_batch(buffer, bx, by, valid_size_x, valid_size_y);
+#ifdef DEBUG
+            _current_pixel += valid_size_x * valid_size_y;
+            _bar.update(_current_pixel);
+#endif
         }
     }
+#ifdef DEBUG
+    _bar.done();
+#endif
 
     // Save image and finalize
     write_png(argv[9], raw_image, width, height);

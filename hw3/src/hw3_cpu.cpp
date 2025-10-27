@@ -106,7 +106,7 @@ vec3 pal(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
 // second march: cast shadow
 // also borrowed from Inigo Quilez
 // see: http://www.iquilezles.org/www/articles/rmshadows/rmshadows.htm
-float softshadow(vec3 ro, vec3 rd, float k) {
+float _softshadow(vec3 ro, vec3 rd, float k) {
     float res = 1.0f;
     float t = 0.f;  // total distance
     for (int i = 0; i < shadow_step; ++i) {
@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
                         float amb =
                             (0.7f + 0.3f * nr.y) *
                             (0.2f + 0.8f * glm::clamp(0.05f * (float)log(trap), 0.0f, 1.0f));  // self occlution
-                        float sdw = softshadow(pos + .001f * nr, sd, 16.f);         // shadow
+                        float sdw = _softshadow(pos + .001f * nr, sd, 16.f);         // shadow
                         float dif = glm::clamp(glm::dot(sd, nr), 0.f, 1.f) * sdw;   // diffuse
                         float spe = glm::pow(glm::clamp(glm::dot(nr, hal), 0.f, 1.f), gloss) *
                                      dif;  // self shadow

@@ -3,6 +3,18 @@
 #include "common.hpp"
 #include "utils.hpp"
 
+void ProgressBar::update(int current) {
+    float percent = (current + initial) * 100.0f / total;
+    std::cerr << "\rProgress: " << std::setw(6) << std::setprecision(2) << std::fixed << percent << "%";
+    if (oneline) {
+        std::cerr << std::flush;
+    } else {
+        std::cerr << std::endl;
+    }
+}
+
+void ProgressBar::done() { std::cerr << std::endl; }
+
 // Save raw_image to PNG file
 void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height) {
     unsigned error = lodepng_encode32_file(filename, raw_image, width, height);
