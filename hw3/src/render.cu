@@ -1,7 +1,9 @@
+#include <cstring>
 #include <iostream>
 
 #include "render.hpp"
 #include "schedule.hpp"
+#include "utils.hpp"
 
 extern uint width;        // image width
 extern uint height;       // image height
@@ -17,10 +19,7 @@ __constant__ uint d_height;
 __constant__ vec2 d_iResolution;
 __constant__ vec3 d_camera_pos;
 __constant__ vec3 d_target_pos;
-
 __constant__ ScheduleDim d_dim;
-__constant__ int d_offset_x;
-__constant__ int d_offset_y;
 
 void copy_constants_to_device() {
     cudaMemcpyToSymbol(d_width, &width, sizeof(uint));
@@ -42,8 +41,8 @@ __device__ float _estimate(vec3 pos, float* trap) {
         float phi = glm::asin(v.z / r) * power;
 
         // update vk+1 and dr
-        dr = power * glm::pow(r, power - 1.f) * dr + 1.f;
-        v = pos + glm::pow(r, power) * vec3(cos(theta) * cos(phi), cos(phi) * sin(theta), -sin(phi));
+        dr = __fmaf_rn(power * glm::pow(r, power - 1.f), dr, 1.f);
+        v = pos + glm::pow(r, power) * vec3(__cosf(theta) * __cosf(phi), __cosf(phi) * __sinf(theta), -__sinf(phi));
 
         // orbit trap for coloring
         *trap = glm::min(*trap, r);
@@ -52,11 +51,11 @@ __device__ float _estimate(vec3 pos, float* trap) {
         if (r > bailout) break;  // if escaped
     }
 
-    return 0.5f * log(r) * r / dr;  // mandelbulb's DE function
+    return 0.5f * __logf(r) * r / dr;  // mandelbulb's DE function
 }
 
 __device__ float _map_trap(vec3 pos, float* trap) {
-    vec2 rt = vec2(cos(PI / 2.f), sin(PI / 2.f));
+    vec2 rt = vec2(__cosf(H_PI), __sinf(H_PI));
     // rotation matrix, rotate 90 deg (pi/2) along the X-axis
     vec3 rp = mat3(1.f, 0.f, 0.f, 0.f, rt.x, -rt.y, 0.f, rt.y, rt.x) * pos;
     return _estimate(rp, trap);
@@ -104,15 +103,12 @@ __device__ vec3 calcNor(vec3 p) {
                                ));
 }
 
-__global__ void _render_pixel(uchar* buffer) {
-    int local_x = d_dim.n_threads_x * blockIdx.x + threadIdx.x;
-    int local_y = d_dim.n_threads_y * blockIdx.y + threadIdx.y;
+__global__ void __launch_bounds__(256, 8) _render_pixel(uchar* buffer) {
+    int x = d_dim.n_threads_x * blockIdx.x + threadIdx.x;
+    int y = d_dim.n_threads_y * blockIdx.y + threadIdx.y;
+    if (x >= d_width || y >= d_height) return;
 
-    int x = local_x + d_offset_x;
-    int y = local_y + d_offset_y;
-
-    int pixel_index = (local_y * d_dim.batch_size_x + local_x) * 4;
-    buffer[pixel_index] = 0;
+    int pixel_index = (y * d_width + x) * 4;
 
     float final_color_r = 0.0f;
     float final_color_g = 0.0f;
@@ -120,11 +116,11 @@ __global__ void _render_pixel(uchar* buffer) {
 
     for (int m = 0; m < AA; ++m) {
         for (int n = 0; n < AA; ++n) {
-            vec2 p = vec2(x, y) + vec2(m, n) / (float)AA;
+            vec2 pos = vec2(x, y) + vec2(m, n) / (float)AA;
 
             // Convert screen space coordinate to (-ap~ap, -1~1)
             // ap = aspect ratio = width/height
-            vec2 uv = (-d_iResolution.xy() + 2.f * p) / d_iResolution.y;
+            vec2 uv = (-d_iResolution.xy() + 2.f * pos) / d_iResolution.y;
             uv.y *= -1;  // flip upside down
 
             // Create camera
@@ -150,8 +146,6 @@ __global__ void _render_pixel(uchar* buffer) {
                 vec3 pos = origin + direction * depth;             // hit position
                 vec3 nr = calcNor(pos);                            // get surface normal
                 vec3 hal = glm::normalize(light_dir - direction);  // blinn-phong lighting model (vector h)
-                // for more info:
-                // https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_shading_model
 
                 // use orbit trap to get the color
                 color = _palette(trap - .4f, vec3(.5f), vec3(.5f), vec3(1.f), vec3(.0f, .1f, .2f));  // diffuse color
@@ -160,7 +154,7 @@ __global__ void _render_pixel(uchar* buffer) {
 
                 // simple blinn phong lighting model
                 float ambient = (0.7f + 0.3f * nr.y) *
-                                (0.2f + 0.8f * glm::clamp(0.05f * (float)log(trap), 0.0f, 1.0f));     // self occlution
+                                (0.2f + 0.8f * glm::clamp(0.05f * (float)__logf(trap), 0.0f, 1.0f));  // self occlution
                 float shadow = _softshadow(pos + .001f * nr, light_dir, 16.f);                        // shadow
                 float diffuse = glm::clamp(glm::dot(light_dir, nr), 0.f, 1.f) * shadow;               // diffuse
                 float specular = glm::pow(glm::clamp(glm::dot(nr, hal), 0.f, 1.f), gloss) * diffuse;  // self shadow
@@ -197,22 +191,23 @@ __global__ void _render_pixel(uchar* buffer) {
     buffer[pixel_index + 3] = 255;                           // a
 }
 
-void render_batch(uchar* buffer[], int offset_x, int offset_y, int size_x, int size_y) {
+void render(uchar* raw_image) {
+    uchar* d_buffer;
+    cudaMalloc((void**)&d_buffer, width * height * 4);
+    copy_constants_to_device();
+
     // Set dimensions
     dim3 gridDim(dim.n_blocks_x, dim.n_blocks_y);
     dim3 blockDim(dim.n_threads_x, dim.n_threads_y);
 
-    // Send offset to device constant memory
-    cudaMemcpyToSymbol(d_offset_x, &offset_x, sizeof(int));
-    cudaMemcpyToSymbol(d_offset_y, &offset_y, sizeof(int));
-
-    // Allocate device buffer pointer array
-    uchar* d_buffer;
-    cudaMalloc((void**)&d_buffer, dim.batch_size_x * dim.batch_size_y * 4);
+#ifdef DEBUG
+    int block_size = dim.n_threads_x * dim.n_threads_y;
+    estimate_occupancy((void*)_render_pixel, block_size, 0);
+#endif
 
     _render_pixel<<<gridDim, blockDim>>>(d_buffer);
-    // Copy each row to host
-    for (int by = 0; by < size_y; ++by) {
-        cudaMemcpy(buffer[by], d_buffer + (by * dim.batch_size_x * 4), size_x * 4, cudaMemcpyDeviceToHost);
-    }
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    cudaMemcpy(raw_image, d_buffer, width * height * 4, cudaMemcpyDeviceToHost);
+    cudaFree(d_buffer);
 }

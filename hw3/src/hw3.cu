@@ -56,35 +56,11 @@ int main(int argc, char** argv) {
     schedule_dim(width, height);
 #ifdef DEBUG
     cout << "Size: (" << width << ", " << height << ")" << endl;
-    cout << "Grid: (" << dim.n_blocks_x << ", " << dim.n_blocks_y << ")" << endl;
-    cout << "Block: (" << dim.n_threads_x << ", " << dim.n_threads_y << ")" << endl;
-    cout << "Batch: (" << dim.batch_size_x << ", " << dim.batch_size_y << ")" << endl;
-#endif
-    copy_constants_to_device();
-
-#ifdef DEBUG
-    ProgressBar _bar(width * height, false);
-    float _current_pixel = 0;
+    cout << "Blocks: (" << dim.n_blocks_x << ", " << dim.n_blocks_y << ")" << endl;
+    cout << "Threads: (" << dim.n_threads_x << ", " << dim.n_threads_y << ")" << endl;
 #endif
 
-    for (int bx = 0; bx < width; bx += dim.batch_size_x) {
-        for (int by = 0; by < height; by += dim.batch_size_y) {
-            uchar* buffer[dim.batch_size_y];
-            for (int j = 0; j < dim.batch_size_y && (by + j) < height; j++) {
-                buffer[j] = &image[by + j][(bx) * 4];
-            }
-            int valid_size_x = min(dim.batch_size_x, (int)(width - bx));
-            int valid_size_y = min(dim.batch_size_y, (int)(height - by));
-            render_batch(buffer, bx, by, valid_size_x, valid_size_y);
-#ifdef DEBUG
-            _current_pixel += valid_size_x * valid_size_y;
-            _bar.update(_current_pixel);
-#endif
-        }
-    }
-#ifdef DEBUG
-    _bar.done();
-#endif
+    render(raw_image);
 
     // Save image and finalize
     write_png(argv[9], raw_image, width, height);

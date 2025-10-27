@@ -7,8 +7,9 @@
 #include <glm/glm.hpp>
 
 #define PI 3.1415926535897932384626433832795f
+#define H_PI 1.5707963267948966192313216916398f
 
-#define AA 3.0f              // anti-aliasing
+#define AA 3                 // anti-aliasing
 #define power 8.0f           // the power of the mandelbulb equation
 #define md_iter 24.0f        // the iteration count of the mandelbulb
 #define ray_step 10000.0f    // maximum step of ray marching

@@ -4,6 +4,12 @@
 #include <iomanip>
 #include <iostream>
 
+#define CUDA_CHECK(err)                                                                 \
+    if (err != cudaSuccess) {                                                                 \
+        std::cerr << "CUDA Error: " << cudaGetErrorString(err) << " at line " << __LINE__ << std::endl; \
+        exit(EXIT_FAILURE);                                                                   \
+    }
+
 // Simple progress bar that only show percentage
 class ProgressBar {
    private:
@@ -19,6 +25,8 @@ class ProgressBar {
 };
 
 void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
+
 void print_device_info();
+void estimate_occupancy(void* kernel, int block_size, int dynamic_smem);
 
 #endif

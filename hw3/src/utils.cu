@@ -56,3 +56,18 @@ void print_device_info() {
         fprintf(stderr, "  Selected num_threads = %u\n\n", num_threads);
     }
 }
+
+void estimate_occupancy(void* kernel, int block_size, int dynamic_smem) {
+    int activeBlocksPerSM = 0;
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&activeBlocksPerSM, kernel,
+                                                  block_size,   // e.g. 128 threads/block
+                                                  dynamic_smem  // bytes of dynamic shared memory per block
+    );
+
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    int maxThreadsPerSM = prop.maxThreadsPerMultiProcessor;
+
+    float occupancy = (activeBlocksPerSM * block_size) / (float)maxThreadsPerSM;
+    printf("Theoretical occupancy: %.2f %%\n", occupancy * 100.0f);
+}
