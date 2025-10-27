@@ -22,3 +22,6 @@ b10901002.tar
 
 # LFS not working properly
 assets/testcases/
+
+# CUDA temporary files
+nvprof2json/
