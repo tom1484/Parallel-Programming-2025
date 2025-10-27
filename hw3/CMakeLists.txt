@@ -52,7 +52,7 @@ target_include_directories(hw3_cpu PRIVATE "${CMAKE_SOURCE_DIR}/lodepng")
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(hw3
     PRIVATE
-      $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+      $<$<COMPILE_LANGUAGE:CUDA>:-w -Xptxas=-v -use_fast_math>
   )
 endif()
 
@@ -62,6 +62,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(hw3
     PRIVATE
       $<$<COMPILE_LANGUAGE:CXX>:-g -Wall>
-      $<$<COMPILE_LANGUAGE:CUDA>:-g -Wall -Xptxas=-v>
+      $<$<COMPILE_LANGUAGE:CUDA>:-g -w -Xptxas=-v -use_fast_math>
   )
 endif()
