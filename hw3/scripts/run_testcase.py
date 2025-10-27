@@ -50,6 +50,24 @@ def parse_arguments():
         help="Enable profiling mode.",
     )
     parser.add_argument(
+        "--profile_visual",
+        action="store_true",
+        required=False,
+        help="Output profile in visual format.",
+    )
+    parser.add_argument(
+        "--profile_cpu",
+        action="store_true",
+        required=False,
+        help="Enable CPU profiling mode.",
+    )
+    parser.add_argument(
+        "--ncu",
+        action="store_true",
+        required=False,
+        help="Check kernel occupancy.",
+    )
+    parser.add_argument(
         "--dry_run",
         action="store_true",
         required=False,
@@ -92,15 +110,17 @@ def read_testcase(input_file: str) -> dict:
     return data
 
 
+def make_output_path(output_dir: str, filename: str):
+    path = os.path.join(output_dir, filename)
+    if os.path.exists(path):
+        os.remove(path)
+    return path
+
+
 def run_testcase(
     id: int,
-    debug: bool,
-    cpu: bool,
-    output_dir: str,
-    save_log: bool,
-    profile: bool,
-    dry_run: bool,
     data: dict,
+    args: argparse.Namespace,
 ) -> dict:
     pos = data["pos"]
     tarpos = data["tarpos"]
@@ -108,6 +128,16 @@ def run_testcase(
     height = data["height"]
     timelimit = data["timelimit"]
     valid = data["valid"]
+
+    debug = getattr(args, "debug", False)
+    cpu = getattr(args, "cpu", False)
+    output_dir = getattr(args, "output_dir", "results")
+    save_log = getattr(args, "save_log", False)
+    profile = getattr(args, "profile", False)
+    profile_visual = getattr(args, "profile_visual", False)
+    profile_cpu = getattr(args, "profile_cpu", False)
+    ncu = getattr(args, "ncu", False)
+    dry_run = getattr(args, "dry_run", False)
 
     result = {
         "output_path": None,
@@ -123,25 +153,14 @@ def run_testcase(
     executable_path = os.path.join("build", build_type, executable_name)
 
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{id:02d}.png")
-    if os.path.exists(output_path):
-        os.remove(output_path)
+    output_path = make_output_path(output_dir, f"{id:02d}.png")
+    log_path = make_output_path(output_dir, f"{id:02d}.log")
 
-    log_path = None
-    if save_log:
-        log_path = os.path.join(output_dir, f"{id:02d}.log")
-        if os.path.exists(log_path):
-            os.remove(log_path)
+    ncu_path = make_output_path(output_dir, f"{id:02d}.ncu-rep")
 
-    prof_path = None
-    prof_log_path = None  # The human-readable log file for nvprof
-    if profile:
-        prof_path = os.path.join(output_dir, f"{id:02d}.prof")
-        if os.path.exists(prof_path):
-            os.remove(prof_path)
-        prof_log_path = os.path.join(output_dir, f"{id:02d}.prof.log")
-        if os.path.exists(prof_log_path):
-            os.remove(prof_log_path)
+    prof_path = make_output_path(output_dir, f"{id:02d}.prof")
+    prof_visual_path = make_output_path(output_dir, f"{id:02d}.nvvp")
+    prof_json_path = make_output_path(output_dir, f"{id:02d}.prof.json")
 
     command = [
         executable_path,
@@ -155,16 +174,29 @@ def run_testcase(
         height,
         output_path,
     ]
-    if profile:
-        command = [
-            "nvprof",
+    if ncu:
+        ncu_command = [
+            "ncu",
+            "--set",
+            "full",
+            "--target-processes",
+            "all",
             "--log-file",
-            prof_log_path,
-            "--export-profile",
-            prof_path,
-            "--cpu-profiling",
-            "on",
-        ] + command
+            ncu_path,
+        ]
+        command = ncu_command + command
+    if profile and not ncu:
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        profile_command = ["nvprof"]
+        if profile_cpu:
+            profile_command.extend(["--cpu-profiling", "on"])
+        if profile_visual:
+            profile_command.extend(
+                ["--output-profile", prof_visual_path, "--profile-api-trace", "all"]
+            )
+        else:
+            profile_command.extend(["--log-file", prof_path, "--print-api-trace"])
+        command = profile_command + command
     if not cpu:
         srun_command = (
             f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
@@ -197,6 +229,14 @@ def run_testcase(
 
     if os.path.exists(output_path):
         result["success"] = True
+
+    if os.path.exists(prof_path) and profile_visual:
+        with open(prof_json_path, "w") as convert_output:
+            subprocess.run(
+                ["python", "nvprof2json/nvprof2json.py", prof_visual_path],
+                check=True,
+                stdout=convert_output,
+            )
 
     elapsed_log = re.search(r"Elapsed: *([0-9.]+) us", log)
     if elapsed_log:
@@ -231,12 +271,7 @@ if __name__ == "__main__":
 
     result = run_testcase(
         id=args.id,
-        debug=args.debug,
-        cpu=args.cpu,
-        output_dir=args.output_dir,
-        save_log=args.save_log,
-        profile=args.profile,
-        dry_run=args.dry_run,
+        args=args,
         data=testcase_data,
     )
 

@@ -68,7 +68,7 @@ if __name__ == "__main__":
             testcase_list.append(id)
 
     testcase_list.sort()
-    
+
     print(f"Running {len(testcase_list)} testcases...")
 
     print("=======================================")
@@ -79,16 +79,7 @@ if __name__ == "__main__":
         testcase_file = os.path.join(args.input_dir, f"{id:02d}.txt")
         testcase_data = read_testcase(testcase_file)
 
-        result = run_testcase(
-            id=id,
-            debug=args.debug,
-            cpu=args.cpu,
-            output_dir=args.output_dir,
-            save_log=True,
-            profile=False,
-            dry_run=False,
-            data=testcase_data,
-        )
+        result = run_testcase(id=id, data=testcase_data, args=args)
 
         print(f"| {id:02d} ", end="")
 
