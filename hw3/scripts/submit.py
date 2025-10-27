@@ -37,16 +37,27 @@ def extract_cmake_flags(build_dir="build/Release"):
 
     cuda_defines = ""
     cxx_defines = ""
+    cuda_flags = ""
+    cxx_flags = ""
 
     # Read flags.make
     flags_content = read_file(flags_file)
     for line in flags_content.split("\n"):
-        if line.startswith("CUDADEFINES ="):
-            cuda_defines = line.replace("CUDADEFINES =", "").strip()
-        elif line.startswith("CXXDEFINES ="):
-            cxx_defines = line.replace("CXXDEFINES =", "").strip()
+        if line.startswith("CUDA_DEFINES ="):
+            cuda_defines = line.replace("CUDA_DEFINES =", "").strip()
+        elif line.startswith("CXX_DEFINES ="):
+            cxx_defines = line.replace("CXX_DEFINES =", "").strip()
+        elif line.startswith("CUDA_FLAGS ="):
+            cuda_flags = line.replace("CUDA_FLAGS =", "").strip()
+        elif line.startswith("CXX_FLAGS ="):
+            cxx_flags = line.replace("CXX_FLAGS =", "").strip()
 
-    return {"cuda_defines": cuda_defines, "cxx_defines": cxx_defines}
+    return {
+        "cuda_defines": cuda_defines,
+        "cxx_defines": cxx_defines,
+        "cuda_flags": cuda_flags,
+        "cxx_flags": cxx_flags,
+    }
 
 
 def remove_local_includes(content, local_headers):
@@ -230,6 +241,8 @@ def main():
     makefile_content = makefile_template.format(
         cuda_defines=cmake_flags["cuda_defines"],
         cxx_defines=cmake_flags["cxx_defines"],
+        cuda_flags=cmake_flags["cuda_flags"],
+        cxx_flags=cmake_flags["cxx_flags"],
     )
 
     makefile_output = os.path.join(submission_dir, "Makefile")
