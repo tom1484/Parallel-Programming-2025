@@ -31,40 +31,49 @@ void copy_constants_to_device() {
     cudaMemcpyToSymbol(d_dim, &dim, sizeof(ScheduleDim));
 }
 
-__device__ float _estimate(vec3 pos, float* trap) {
+__device__ float _estimate(vec3 pos, float& trap) {
     vec3 v = pos;
     float dr = 1.f;         // |v'|
     float r = __length(v);  // r = |v| = sqrt(x^2 + y^2 + z^2)
-    *trap = r;
+    trap = r;
 
     for (int i = 0; i < md_iter; ++i) {
         float theta = atan2f(v.y, v.x) * power;
-        float phi = asinf(v.z / r) * power;
+        float phi = asinf(__div(v.z, r)) * power;
 
-        // update vk+1 and dr
-        dr = __fma(power * __pow(r, power - 1.f), dr, 1.f);
-        v = __fma(vec3(__cosf(theta) * __cosf(phi), __cosf(phi) * __sinf(theta), -__sinf(phi)), __pow(r, power), pos);
+        float sin_theta, cos_theta;
+        float sin_phi, cos_phi;
+        __sincosf(theta, &sin_theta, &cos_theta);
+        __sincosf(phi, &sin_phi, &cos_phi);
 
+        float r_pow, r_pow_less;
+        __mendel_pow(r, r_pow_less, r_pow);
+
+        // update vk+1
+        v = __fma(vec3(cos_theta * cos_phi, cos_phi * sin_theta, -sin_phi), r_pow, pos);
+        // update dr
+        dr = __fma(power * r_pow_less, dr, 1.f);
         // orbit trap for coloring
-        *trap = __min(*trap, r);
+        trap = __min(trap, r);
 
         r = __length(v);         // update r
         if (r > bailout) break;  // if escaped
     }
 
-    return 0.5f * logf(r) * r / dr;  // mandelbulb's DE function
+    return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
 }
 
-__device__ float _map_trap(vec3 pos, float* trap) {
-    vec2 rt = vec2(0.f, 1.f);
+__device__ float _map_trap(vec3 pos, float& trap) {
     // rotation matrix, rotate 90 deg (pi/2) along the X-axis
-    vec3 rp = mat3(1.f, 0.f, 0.f, 0.f, rt.x, -rt.y, 0.f, rt.y, rt.x) * pos;
+    // vec2 rt = vec2(0.f, 1.f);
+    // vec3 rp = mat3(1.f, 0.f, 0.f, 0.f, rt.x, -rt.y, 0.f, rt.y, rt.x) * pos;
+    vec3 rp = vec3(pos.x, -pos.z, pos.y);
     return _estimate(rp, trap);
 }
 
 __device__ float _map(vec3 pos) {
     float _trap;  // dummy
-    return _map_trap(pos, &_trap);
+    return _map_trap(pos, _trap);
 }
 
 __device__ vec3 _palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
@@ -76,14 +85,15 @@ __device__ float _softshadow(vec3 origin, vec3 direction, float k) {
     float t = 0.f;  // total distance
     for (int i = 0; i < shadow_step; ++i) {
         float h = _map(__fma(direction, t, origin));
-        res = __min(res, k * h / t);  // closer to the objects, k*h/t terms will produce darker shadow
+        // closer to the objects, k*h/t terms will produce darker shadow
+        res = __min(res, k * __div(h, t));
         if (res < 0.02f) return 0.02f;
         t += __clamp(h, .001f, step_limiter);  // move ray
     }
     return __clamp(res, .02f, 1.f);
 }
 
-__device__ float _trace_ray(vec3 origin, vec3 direction, float* trap) {
+__device__ float _trace_ray(vec3 origin, vec3 direction, float& trap) {
     float total_dis = 0;  // total distance
     float len = 0;        // current distance
 
@@ -106,9 +116,12 @@ __device__ vec3 calculate_norm(vec3 p) {
                             ));
 }
 
-__global__ void __launch_bounds__(256, 8) _render_pixel(uchar* buffer) {
-    int x = d_dim.n_threads_x * blockIdx.x + threadIdx.x;
-    int y = d_dim.n_threads_y * blockIdx.y + threadIdx.y;
+__global__ void __launch_bounds__(256, 4) _render_pixel(uchar* buffer) {
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    // Round-robin scheduling
+    // int x = d_dim.n_blocks_x * threadIdx.x + blockIdx.x;
+    // int y = d_dim.n_blocks_y * threadIdx.y + blockIdx.y;
     if (x >= d_width || y >= d_height) return;
 
     int pixel_index = (y * d_width + x) * 4;
@@ -117,25 +130,25 @@ __global__ void __launch_bounds__(256, 8) _render_pixel(uchar* buffer) {
     float final_color_g = 0.0f;
     float final_color_b = 0.0f;
 
+    // Create camera
+    vec3 origin = d_camera_pos;                                      // ray (camera) origin
+    vec3 target = d_target_pos;                                      // target position
+    vec3 forward = __normalize(target - origin);                     // forward vector
+    vec3 side = __normalize(__cross(forward, vec3(0.f, 1.f, 0.f)));  // right (side) vector
+    vec3 up = __normalize(__cross(side, forward));                   // up vector
+
+    vec2 uv_pos = vec2(x << 1, y << 1) - d_iResolution.xy();
+
     for (int m = 0; m < AA; ++m) {
         for (int n = 0; n < AA; ++n) {
-            vec2 pos = vec2(x, y) + vec2(m, n) / (float)AA;
-
             // Convert screen space coordinate to (-ap~ap, -1~1)
-            // ap = aspect ratio = width/height
-            vec2 uv = (-d_iResolution.xy() + 2.f * pos) / d_iResolution.y;
+            vec2 uv = (__fma(vec2(m, n), __ric(HALF_AA), uv_pos)) / d_iResolution.y;
             uv.y *= -1;  // flip upside down
-
-            // Create camera
-            vec3 origin = d_camera_pos;                                             // ray (camera) origin
-            vec3 target = d_target_pos;                                             // target position
-            vec3 forward = __normalize(target - origin);                            // forward vector
-            vec3 side = __normalize(__cross(forward, vec3(0.f, 1.f, 0.f)));         // right (side) vector
-            vec3 up = __normalize(__cross(side, forward));                          // up vector
-            vec3 direction = __normalize(uv.x * side + uv.y * up + FOV * forward);  // ray direction
+            // ray direction
+            vec3 direction = __normalize(uv.x * side + uv.y * up + FOV * forward);
 
             float trap;
-            float depth = _trace_ray(origin, direction, &trap);
+            float depth = _trace_ray(origin, direction, trap);
 
             // Lighting
             vec3 color(0.f);                             // color
@@ -156,15 +169,14 @@ __global__ void __launch_bounds__(256, 8) _render_pixel(uchar* buffer) {
                 float gloss = 32.f;                                                                  // specular gloss
 
                 // simple blinn phong lighting model
-                float ambient = (0.7f + 0.3f * nr.y) *
-                                (0.2f + 0.8f * __clamp(0.05f * (float)logf(trap), 0.0f, 1.0f));  // self occlution
-                float shadow = _softshadow(pos + .001f * nr, light_dir, 16.f);                   // shadow
-                float diffuse = __clamp(__dot(light_dir, nr), 0.f, 1.f) * shadow;                // diffuse
-                float specular = __pow(__clamp(__dot(nr, hal), 0.f, 1.f), gloss) * diffuse;      // self shadow
+                float ambient = __fma(0.3f, nr.y, 0.7f) *
+                                __fma(0.8f, __clamp(0.05f * (float)logf(trap), 0.0f, 1.0f), 0.2f);  // self occlution
+                float shadow = _softshadow(__fma(nr, .001f, pos), light_dir, 16.f);                 // shadow
+                float diffuse = __clamp(__dot(light_dir, nr), 0.f, 1.f) * shadow;                   // diffuse
+                float specular = __pow(__clamp(__dot(nr, hal), 0.f, 1.f), gloss) * diffuse;         // self shadow
 
-                vec3 lin(0.f);
-                lin += ambient_color * (.05f + .95f * ambient);  // ambient color * ambient
-                lin += light_color * diffuse * 0.8f;             // diffuse * light color * light intensity
+                vec3 lin = ambient_color * __fma(.95f, ambient, .05f);
+                lin = __fma(light_color, diffuse * 0.8f, lin);  // diffuse * light color * light intensity
                 color *= lin;
 
                 color = __pow(color, vec3(.7f, .9f, 1.f));  // fake SSS (subsurface scattering)
@@ -178,20 +190,15 @@ __global__ void __launch_bounds__(256, 8) _render_pixel(uchar* buffer) {
             final_color_b += color.b;
         }
     }
-    // fcol /= (float)(AA * AA);
-    final_color_r /= (float)(AA * AA);
-    final_color_g /= (float)(AA * AA);
-    final_color_b /= (float)(AA * AA);
     // convert float (0~1) to unsigned char (0~255)
+    // fcol /= (float)(AA * AA);
     // fcol *= 255.0f;
-    final_color_r *= 255.0f;
-    final_color_g *= 255.0f;
-    final_color_b *= 255.0f;
+    float scaling = __div(255.0f, (float)(AA * AA));
+    uchar color_r = final_color_r * scaling;
+    uchar color_g = final_color_g * scaling;
+    uchar color_b = final_color_b * scaling;
 
-    buffer[pixel_index + 0] = (unsigned char)final_color_r;  // r
-    buffer[pixel_index + 1] = (unsigned char)final_color_g;  // g
-    buffer[pixel_index + 2] = (unsigned char)final_color_b;  // b
-    buffer[pixel_index + 3] = 255;                           // a
+    *(uchar4*)(buffer + pixel_index) = make_uchar4(color_r, color_g, color_b, 255);
 }
 
 void render(uchar* raw_image) {
