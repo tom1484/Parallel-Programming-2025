@@ -25,6 +25,7 @@ set(SRC
   "${CMAKE_SOURCE_DIR}/src/global.cpp"
   "${CMAKE_SOURCE_DIR}/src/hw3.cu"
   "${CMAKE_SOURCE_DIR}/src/utils.cu"
+  "${CMAKE_SOURCE_DIR}/src/png_writer.cpp"
   "${CMAKE_SOURCE_DIR}/src/schedule.cu"
   "${CMAKE_SOURCE_DIR}/src/render.cu"
 )
@@ -47,6 +48,9 @@ target_include_directories(hw3 PRIVATE "${CMAKE_SOURCE_DIR}/lodepng")
 target_include_directories(hw3_cpu PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_include_directories(hw3_cpu PRIVATE "${CMAKE_SOURCE_DIR}/glm/include")
 target_include_directories(hw3_cpu PRIVATE "${CMAKE_SOURCE_DIR}/lodepng")
+
+find_package(ZLIB REQUIRED)
+target_link_libraries(hw3 PRIVATE ZLIB::ZLIB)
 
 # Release mode adds -O3 optimization by default
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

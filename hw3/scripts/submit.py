@@ -130,6 +130,7 @@ def merge_files():
     # Define file order based on dependencies
     headers = [
         "common.hpp",
+        "png_writer.hpp",
         "render.hpp",
         "schedule.hpp",
         "utils.hpp",
@@ -139,6 +140,7 @@ def merge_files():
     sources = [
         "global.cpp",
         "hw3.cu",
+        "png_writer.cpp",
         "render.cu",
         "schedule.cu",
         "utils.cu",
