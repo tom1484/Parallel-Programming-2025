@@ -24,9 +24,6 @@ class ProgressBar {
     void done();
 };
 
-void write_png_fast(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
-void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
-
 void print_device_info();
 void estimate_occupancy(void* kernel, int block_size, int dynamic_smem);
 

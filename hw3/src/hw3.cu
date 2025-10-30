@@ -10,7 +10,7 @@
 #endif
 
 #include "common.hpp"
-#include "png_writer.hpp"
+#include "io.hpp"
 #include "render.hpp"
 #include "schedule.hpp"
 #include "utils.hpp"
