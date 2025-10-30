@@ -24,6 +24,7 @@ class ProgressBar {
     void done();
 };
 
+void write_png_fast(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
 void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
 
 void print_device_info();

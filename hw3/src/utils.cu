@@ -15,6 +15,37 @@ void ProgressBar::update(int current) {
 
 void ProgressBar::done() { std::cerr << std::endl; }
 
+void write_png_fast(const char* filename, unsigned char* raw_image, unsigned width, unsigned height) {
+    LodePNGState state;
+    lodepng_state_init(&state);
+
+    // No compression - fastest encoding
+    state.encoder.zlibsettings.btype = 0;      // Disable compression
+    state.encoder.filter_strategy = LFS_ZERO;  // No filtering
+    state.encoder.auto_convert = 0;            // Skip color analysis
+
+    // Set color mode explicitly
+    state.info_raw.colortype = LCT_RGBA;
+    state.info_raw.bitdepth = 8;
+    state.info_png.color.colortype = LCT_RGBA;
+    state.info_png.color.bitdepth = 8;
+
+    unsigned char* png_buffer;
+    size_t png_size;
+    unsigned error = lodepng_encode(&png_buffer, &png_size, raw_image, width, height, &state);
+
+    if (!error) {
+        error = lodepng_save_file(png_buffer, png_size, filename);
+    }
+
+    // lodepng_free(png_buffer);
+    // lodepng_state_cleanup(&state);
+
+    if (error) {
+        printf("png error %u: %s\n", error, lodepng_error_text(error));
+    }
+}
+
 // Save raw_image to PNG file
 void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height) {
     unsigned error = lodepng_encode32_file(filename, raw_image, width, height);
