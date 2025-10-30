@@ -133,7 +133,7 @@ __device__ vec3 calculate_norm(vec3 p) {
                             ));
 }
 
-__global__ void __launch_bounds__(256, 4) _render_pixel(uchar* buffer) {
+__global__ void __launch_bounds__(256, 8) _render_pixel(float* buffer, int m, int n) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
@@ -146,69 +146,84 @@ __global__ void __launch_bounds__(256, 4) _render_pixel(uchar* buffer) {
 
     vec2 uv_pos = vec2(x << 1, y << 1) - d_iResolution.xy();
 
-    for (int m = 0; m < AA; ++m) {
-        for (int n = 0; n < AA; ++n) {
-            // Convert screen space coordinate to (-ap~ap, -1~1)
-            vec2 uv = (__fma(vec2(m, n), __ric(HALF_AA), uv_pos)) / d_iResolution.y;
-            uv.y *= -1;  // flip upside down
-            // ray direction
-            vec3 direction = __normalize(uv.x * d_side + uv.y * d_up + FOV * d_forward);
+    // for (int m = 0; m < AA; ++m) {
+    // for (int n = 0; n < AA; ++n) {
+    // Convert screen space coordinate to (-ap~ap, -1~1)
+    vec2 uv = (__fma(vec2(m, n), __ric(HALF_AA), uv_pos)) / d_iResolution.y;
+    uv.y *= -1;  // flip upside down
+    // ray direction
+    vec3 direction = __normalize(uv.x * d_side + uv.y * d_up + FOV * d_forward);
 
-            float trap;
-            float depth = _trace_ray(d_origin, direction, trap);
+    float trap;
+    float depth = _trace_ray(d_origin, direction, trap);
 
-            // Lighting
-            vec3 color(0.f);  // color
+    // Lighting
+    vec3 color(0.f);  // color
 
-            // Coloring
-            if (depth < 0.f) {      // miss (hit sky)
-                color = vec3(0.f);  // sky color (black)
-            } else {
-                vec3 pos = d_origin + direction * depth;          // hit position
-                vec3 nr = calculate_norm(pos);                    // get surface normal
-                vec3 hal = __normalize(d_light_dir - direction);  // blinn-phong lighting model (vector h)
+    // Coloring
+    if (depth < 0.f) {      // miss (hit sky)
+        color = vec3(0.f);  // sky color (black)
+    } else {
+        vec3 pos = d_origin + direction * depth;          // hit position
+        vec3 nr = calculate_norm(pos);                    // get surface normal
+        vec3 hal = __normalize(d_light_dir - direction);  // blinn-phong lighting model (vector h)
 
-                // use orbit trap to get the color
-                color = _palette(trap - .4f, vec3(.5f), vec3(.5f), vec3(1.f), vec3(.0f, .1f, .2f));  // diffuse color
-                vec3 ambient_color = vec3(0.3f);                                                     // ambient color
-                float gloss = 32.f;                                                                  // specular gloss
+        // use orbit trap to get the color
+        color = _palette(trap - .4f, vec3(.5f), vec3(.5f), vec3(1.f), vec3(.0f, .1f, .2f));  // diffuse color
+        vec3 ambient_color = vec3(0.3f);                                                     // ambient color
+        float gloss = 32.f;                                                                  // specular gloss
 
-                // simple blinn phong lighting model
-                float ambient = __fma(0.3f, nr.y, 0.7f) *
-                                __fma(0.8f, __saturate(0.05f * (float)logf(trap)), 0.2f);  // self occlution
-                float shadow = _softshadow(__fma(nr, .001f, pos), d_light_dir, 16.f);      // shadow
-                float diffuse = __saturate(__dot(d_light_dir, nr)) * shadow;               // diffuse
-                float specular = __pow(__saturate(__dot(nr, hal)), gloss) * diffuse;       // self shadow
+        // simple blinn phong lighting model
+        float ambient =
+            __fma(0.3f, nr.y, 0.7f) * __fma(0.8f, __saturate(0.05f * (float)logf(trap)), 0.2f);  // self occlution
+        float shadow = _softshadow(__fma(nr, .001f, pos), d_light_dir, 16.f);                    // shadow
+        float diffuse = __saturate(__dot(d_light_dir, nr)) * shadow;                             // diffuse
+        float specular = __pow(__saturate(__dot(nr, hal)), gloss) * diffuse;                     // self shadow
 
-                vec3 lin = ambient_color * __fma(.95f, ambient, .05f);
-                lin = __fma(d_light_color, diffuse * 0.8f, lin);  // diffuse * light color * light intensity
-                color *= lin;
+        vec3 lin = ambient_color * __fma(.95f, ambient, .05f);
+        lin = __fma(d_light_color, diffuse * 0.8f, lin);  // diffuse * light color * light intensity
+        color *= lin;
 
-                color = __pow(color, vec3(.7f, .9f, 1.f));  // fake SSS (subsurface scattering)
-                color += specular * 0.8f;                   // specular
-            }
-
-            color = __saturate(__pow(color, vec3(.4545f)));  // gamma correction
-            // fcol += vec4(col, 1.f);
-            final_color_r += color.r;
-            final_color_g += color.g;
-            final_color_b += color.b;
-        }
+        color = __pow(color, vec3(.7f, .9f, 1.f));  // fake SSS (subsurface scattering)
+        color += specular * 0.8f;                   // specular
     }
-    // convert float (0~1) to unsigned char (0~255)
-    // fcol /= (float)(AA * AA);
-    // fcol *= 255.0f;
-    float scaling = __div(255.0f, (float)(AA * AA));
-    uchar color_r = final_color_r * scaling;
-    uchar color_g = final_color_g * scaling;
-    uchar color_b = final_color_b * scaling;
 
-    *(uchar4*)(buffer + pixel_index) = make_uchar4(color_r, color_g, color_b, 255);
+    color = __saturate(__pow(color, vec3(.4545f)));  // gamma correction
+    // fcol += vec4(col, 1.f);
+    final_color_r += color.r;
+    final_color_g += color.g;
+    final_color_b += color.b;
+
+    float4* buffer_pixel = (float4*)(buffer + pixel_index);
+    atomicAdd(&buffer_pixel->x, final_color_r * PIXEL_SCALING);
+    atomicAdd(&buffer_pixel->y, final_color_g * PIXEL_SCALING);
+    atomicAdd(&buffer_pixel->z, final_color_b * PIXEL_SCALING);
+    buffer_pixel->w = 255.0f;
+}
+
+__global__ void __launch_bounds__(256, 4) _convert_pixel(float* src_buffer, uchar* dst_buffer) {
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    if (x >= d_width || y >= d_height) return;
+
+    int pixel_index = (y * d_width + x) * 4;
+
+    float4 fcol = *(float4*)(src_buffer + pixel_index);
+    uchar color_r = static_cast<uchar>(fcol.x);
+    uchar color_g = static_cast<uchar>(fcol.y);
+    uchar color_b = static_cast<uchar>(fcol.z);
+
+    *(uchar4*)(dst_buffer + pixel_index) = make_uchar4(color_r, color_g, color_b, 255);
 }
 
 void render(uchar* raw_image) {
     uchar* d_buffer;
     cudaMalloc((void**)&d_buffer, width * height * 4);
+
+    float* d_buffer_float;
+    cudaMalloc((void**)&d_buffer_float, width * height * 4 * sizeof(float));
+    cudaMemset(d_buffer_float, 0, width * height * 4 * sizeof(float));
+
     prepare_constants();
 
     // Set dimensions
@@ -220,9 +235,18 @@ void render(uchar* raw_image) {
     estimate_occupancy((void*)_render_pixel, block_size, 0);
 #endif
 
-    _render_pixel<<<gridDim, blockDim>>>(d_buffer);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    cudaStream_t stream[AA * AA];
+    for (int m = 0; m < AA; ++m) {
+        for (int n = 0; n < AA; ++n) {
+            cudaStreamCreate(&stream[m]);
+            _render_pixel<<<gridDim, blockDim, 0, stream[m]>>>(d_buffer_float, m, n);
+        }
+    }
+    cudaDeviceSynchronize();
 
+    _convert_pixel<<<gridDim, blockDim>>>(d_buffer_float, d_buffer);
     cudaMemcpy(raw_image, d_buffer, width * height * 4, cudaMemcpyDeviceToHost);
+
     cudaFree(d_buffer);
+    cudaFree(d_buffer_float);
 }
