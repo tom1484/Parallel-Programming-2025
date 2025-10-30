@@ -73,6 +73,12 @@ def parse_arguments():
         required=False,
         help="Perform a dry run without executing the test case.",
     )
+    parser.add_argument(
+        "--no_srun",
+        action="store_true",
+        required=False,
+        help="Do not use srun even for GPU execution.",
+    )
     return parser.parse_args()
 
 
@@ -106,6 +112,11 @@ def read_testcase(input_file: str) -> dict:
     if len(tarpos_data) != 3:
         raise ValueError("Target position data must contain exactly three values.")
     data["tarpos"] = tarpos_data
+    
+    valid_path = data["valid"]
+    valid_name = os.path.basename(valid_path)
+    valid_path = os.path.join(os.path.dirname(input_file), valid_name)
+    data["valid"] = valid_path
 
     return data
 
@@ -138,6 +149,7 @@ def run_testcase(
     profile_cpu = getattr(args, "profile_cpu", False)
     ncu = getattr(args, "ncu", False)
     dry_run = getattr(args, "dry_run", False)
+    no_srun = getattr(args, "no_srun", False)
 
     result = {
         "output_path": None,
@@ -195,9 +207,9 @@ def run_testcase(
                 ["--output-profile", prof_visual_path, "--profile-api-trace", "all"]
             )
         else:
-            profile_command.extend(["--log-file", prof_path, "--print-api-trace"])
+            profile_command.extend(["--log-file", prof_path])
         command = profile_command + command
-    if not cpu:
+    if not cpu and not no_srun:
         srun_command = (
             f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
         )
