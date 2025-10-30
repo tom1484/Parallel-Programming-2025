@@ -134,7 +134,7 @@ def merge_files():
         "render.hpp",
         "schedule.hpp",
         "utils.hpp",
-        "arithmic.hpp",
+        "arithmmtic.hpp",
     ]
 
     sources = [

@@ -12,6 +12,7 @@ GLM_DIR = /work/b10502010/pp25/hw3/glm
 CXX_DEFINES = -DSUBMIT {cxx_defines}
 CUDA_DEFINES = {cuda_defines}
 CUDA_FLAGS = -I$(LODEPNG_DIR) -I$(GLM_DIR)/include {cuda_flags}
+LDFLAGS =
 
 # Source files
 LODEPNG = $(LODEPNG_DIR)/lodepng.cpp
@@ -24,7 +25,7 @@ TARGET_CPU = hw3_cpu
 all: $(TARGET_CUDA)
 
 $(TARGET_CUDA): hw3.cu $(LODEPNG)
-	$(NVCC) $(CXX_DEFINES) $(CUDA_DEFINES) $(CUDA_FLAGS) hw3.cu $(LODEPNG) -o $(TARGET_CUDA)
+	$(NVCC) $(CXX_DEFINES) $(CUDA_DEFINES) $(CUDA_FLAGS) hw3.cu $(LODEPNG) -o $(TARGET_CUDA) $(LDFLAGS)
 
 # Clean
 clean:

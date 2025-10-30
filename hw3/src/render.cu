@@ -1,7 +1,7 @@
 #include <cstring>
 #include <iostream>
 
-#include "arithmic.hpp"
+#include "arithmetic.hpp"
 #include "render.hpp"
 #include "schedule.hpp"
 #include "utils.hpp"
