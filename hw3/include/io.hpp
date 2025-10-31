@@ -1,9 +1,10 @@
 #ifndef IO_HPP
 #define IO_HPP
 
+#include <cstring>
+
 #ifdef ZLIB
 #include <zlib.h>
-#include <cstring>
 #endif
 
 void write_png(const char* filename, unsigned char* raw_image, unsigned width, unsigned height);
