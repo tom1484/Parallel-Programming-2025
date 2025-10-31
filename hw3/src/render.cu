@@ -54,7 +54,7 @@ __device__ float _estimate(vec3 pos, float& trap) {
     float r = __length(v);  // r = |v| = sqrt(x^2 + y^2 + z^2)
     trap = r;
 
-    for (int i = 0; i < md_iter; ++i) {
+    for (int i = 0; i < md_iter && r < bailout; ++i) {
         float theta = atan2f(v.y, v.x) * power;
         float phi = asinf(__div(v.z, r)) * power;
 
@@ -73,8 +73,7 @@ __device__ float _estimate(vec3 pos, float& trap) {
         // orbit trap for coloring
         trap = __min(trap, r);
 
-        r = __length(v);         // update r
-        if (r > bailout) break;  // if escaped
+        r = __length(v);  // update r
     }
 
     return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
@@ -85,7 +84,7 @@ __device__ float _estimate_notrap(vec3 pos) {
     float dr = 1.f;         // |v'|
     float r = __length(v);  // r = |v| = sqrt(x^2 + y^2 + z^2)
 
-    for (int i = 0; i < md_iter; ++i) {
+    for (int i = 0; i < md_iter && r < bailout; ++i) {
         float theta = atan2f(v.y, v.x) * power;
         float phi = asinf(__div(v.z, r)) * power;
 
@@ -102,8 +101,7 @@ __device__ float _estimate_notrap(vec3 pos) {
         // update dr
         dr = __fma(power * r_pow7, dr, 1.f);
 
-        r = __length(v);         // update r
-        if (r > bailout) break;  // if escaped
+        r = __length(v);  // update r
     }
 
     return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
@@ -233,7 +231,7 @@ __global__ void __launch_bounds__(256, 4) _render_pixel(float* buffer, int m, in
     buffer_pixel->w = 255.0f;
 }
 
-__global__ void  _convert_pixel(float* src_buffer, uchar* dst_buffer) {
+__global__ void _convert_pixel(float* src_buffer, uchar* dst_buffer) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
