@@ -99,7 +99,10 @@ if __name__ == "__main__":
         error_percentages = []
         all_passed = True
 
-        for _ in range(args.iter):
+        with open(output_path, "a") as f:
+            f.write(f"Testcase ID: {id:02d}\n")
+
+        for i in range(args.iter):
             result = run_testcase(id=id, data=testcase_data, args=args)
             if result["elapsed_time"] is not None and result["success"]:
                 elapsed_times.append(result["elapsed_time"])
@@ -109,6 +112,14 @@ if __name__ == "__main__":
                 all_passed = False
 
             results.append(result)
+
+            with open(output_path, "a") as f:
+                f.write(f"  Iteration {i+1}:\n")
+                f.write(f"    Elapsed Time: {result['elapsed_time']} us\n")
+                f.write(f"    Success: {result['success']}\n")
+                if result["elapsed_time"] is not None and result["success"]:
+                    error_percentage = validate(result["output_path"], result["valid_path"])
+                    f.write(f"    Error Percentage: {error_percentage:.4f} %\n")
 
         all_passed = all_passed and all(ep < 3.0 for ep in error_percentages)
 
@@ -130,14 +141,6 @@ if __name__ == "__main__":
         print(f"| {valid_iters_str:>11s} |")
 
         with open(output_path, "a") as f:
-            f.write(f"Testcase ID: {id:02d}\n")
-            for i, res in enumerate(results):
-                f.write(f"  Iteration {i+1}:\n")
-                f.write(f"    Elapsed Time: {res['elapsed_time']} us\n")
-                f.write(f"    Success: {res['success']}\n")
-                if res["elapsed_time"] is not None and res["success"]:
-                    error_percentage = validate(res["output_path"], res["valid_path"])
-                    f.write(f"    Error Percentage: {error_percentage:.4f} %\n")
             f.write(f"  Summary:\n")
             if len(elapsed_times) > 0:
                 f.write(f"    Mean Elapsed Time: {mean_elapsed_time} us\n")
