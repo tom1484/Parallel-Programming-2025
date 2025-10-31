@@ -80,6 +80,35 @@ __device__ float _estimate(vec3 pos, float& trap) {
     return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
 }
 
+__device__ float _estimate_notrap(vec3 pos) {
+    vec3 v = pos;
+    float dr = 1.f;         // |v'|
+    float r = __length(v);  // r = |v| = sqrt(x^2 + y^2 + z^2)
+
+    for (int i = 0; i < md_iter; ++i) {
+        float theta = atan2f(v.y, v.x) * power;
+        float phi = asinf(__div(v.z, r)) * power;
+
+        float sin_theta, cos_theta;
+        float sin_phi, cos_phi;
+        __sincosf(theta, &sin_theta, &cos_theta);
+        __sincosf(phi, &sin_phi, &cos_phi);
+
+        float r_pow8, r_pow7;
+        __mendel_pow(r, r_pow7, r_pow8);
+
+        // update vk+1
+        v = __fma(vec3(cos_theta * cos_phi, cos_phi * sin_theta, -sin_phi), r_pow8, pos);
+        // update dr
+        dr = __fma(power * r_pow7, dr, 1.f);
+
+        r = __length(v);         // update r
+        if (r > bailout) break;  // if escaped
+    }
+
+    return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
+}
+
 __device__ float _map_trap(vec3 pos, float& trap) {
     // rotation matrix, rotate 90 deg (pi/2) along the X-axis
     // vec2 rt = vec2(0.f, 1.f);
@@ -88,9 +117,9 @@ __device__ float _map_trap(vec3 pos, float& trap) {
     return _estimate(rp, trap);
 }
 
-__device__ float _map(vec3 pos) {
-    float _trap;  // dummy
-    return _map_trap(pos, _trap);
+__device__ float _map_notrap(vec3 pos) {
+    vec3 rp = vec3(pos.x, -pos.z, pos.y);
+    return _estimate_notrap(rp);
 }
 
 __device__ vec3 _palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
@@ -101,7 +130,7 @@ __device__ float _softshadow(vec3 origin, vec3 direction, float k) {
     float res = 1.0f;
     float t = 0.f;  // total distance
     for (int i = 0; i < shadow_step; ++i) {
-        float h = _map(__fma(direction, t, origin));
+        float h = _map_notrap(__fma(direction, t, origin));
         // closer to the objects, k*h/t terms will produce darker shadow
         res = __min(res, k * __div(h, t));
         if (res < 0.02f) return 0.02f;
@@ -127,15 +156,18 @@ __device__ float _trace_ray(vec3 origin, vec3 direction, float& trap) {
 // use gradient to calc surface normal
 __device__ vec3 calculate_norm(vec3 p) {
     vec2 e = vec2(eps, 0.f);
-    return __normalize(vec3(_map(p + e.xyy()) - _map(p - e.xyy()),  // dx
-                            _map(p + e.yxy()) - _map(p - e.yxy()),  // dy
-                            _map(p + e.yyx()) - _map(p - e.yyx())   // dz
+    return __normalize(vec3(_map_notrap(p + e.xyy()) - _map_notrap(p - e.xyy()),  // dx
+                            _map_notrap(p + e.yxy()) - _map_notrap(p - e.yxy()),  // dy
+                            _map_notrap(p + e.yyx()) - _map_notrap(p - e.yyx())   // dz
                             ));
 }
 
-__global__ void __launch_bounds__(256, 8) _render_pixel(float* buffer, int m, int n) {
+__global__ void __launch_bounds__(256, 4) _render_pixel(float* buffer, int m, int n) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
+    // Round-robin
+    // int x = gridDim.x * threadIdx.x + blockIdx.x;
+    // int y = gridDim.y * threadIdx.y + blockIdx.y;
     if (x >= d_width || y >= d_height) return;
 
     int pixel_index = (y * d_width + x) * 4;
@@ -201,7 +233,7 @@ __global__ void __launch_bounds__(256, 8) _render_pixel(float* buffer, int m, in
     buffer_pixel->w = 255.0f;
 }
 
-__global__ void __launch_bounds__(256, 4) _convert_pixel(float* src_buffer, uchar* dst_buffer) {
+__global__ void  _convert_pixel(float* src_buffer, uchar* dst_buffer) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;

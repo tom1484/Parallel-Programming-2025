@@ -66,7 +66,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         --extra-device-vectorization
         -use_fast_math
         -fmad true
-        -Xptxas -maxrregcount=64 -O3
+        --generate-line-info
+        # -Xptxas --register-usage-level=10,--warn-on-spills,--optimize-float-atomics,-v
+        -Xptxas -O3,-maxrregcount=48,--optimize-float-atomics,-v
         >
   )
 endif()
@@ -77,6 +79,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(hw3
     PRIVATE
       $<$<COMPILE_LANGUAGE:CXX>:-g -Wall>
-      $<$<COMPILE_LANGUAGE:CUDA>:-g -w -Xptxas -v -use_fast_math>
+      $<$<COMPILE_LANGUAGE:CUDA>:-g -w -use_fast_math -Xptxas -v>
   )
 endif()

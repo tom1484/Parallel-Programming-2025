@@ -64,6 +64,7 @@ int main(int argc, char** argv) {
     render(raw_image);
 
     // Save image and finalize
+    // write_png(argv[9], raw_image, width, height);
     // write_png_fast(argv[9], raw_image, width, height);
     write_png_custom(argv[9], raw_image, width, height);
     delete[] raw_image;
