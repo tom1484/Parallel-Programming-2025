@@ -57,6 +57,9 @@ __device__ INLINE vec3 __fma(const vec3& a, const float& b, const vec3& c) {
 __device__ INLINE float __length(const vec2& v) { return sqrtf(__fma(v.x, v.x, v.y * v.y)); }
 __device__ INLINE float __length(const vec3& v) { return sqrtf(__fma(v.x, v.x, __fma(v.y, v.y, v.z * v.z))); }
 
+__device__ INLINE float __length2(const vec2& v) { return __fma(v.x, v.x, v.y * v.y); }
+__device__ INLINE float __length2(const vec3& v) { return __fma(v.x, v.x, __fma(v.y, v.y, v.z * v.z)); }
+
 __device__ INLINE vec2 __normalize(const vec2& v) {
     float inv_len = rsqrtf(__fma(v.x, v.x, v.y * v.y));
     return vec2(v.x * inv_len, v.y * inv_len);
@@ -82,6 +85,12 @@ __device__ INLINE vec3 __pow(const vec3& a, const vec3& b) {
 __device__ INLINE float __saturate(const float& x) { return __saturatef(x); }
 __device__ INLINE vec2 __saturate(const vec2& v) { return vec2(__saturatef(v.x), __saturatef(v.y)); }
 __device__ INLINE vec3 __saturate(const vec3& v) { return vec3(__saturatef(v.x), __saturatef(v.y), __saturatef(v.z)); }
+
+__device__ INLINE void __mendel_pow2(float r, float r2, float& pow7, float& pow8) {
+    float r4 = r2 * r2;  // r^4
+    pow8 = r4 * r4;      // r^8
+    pow7 = r4 * r2 * r;  // r^7
+}
 
 __device__ INLINE void __mendel_pow(float r, float& pow7, float& pow8) {
     // __device__ INLINE void __mendel_pow(float r, float& pow7, float& pow8) {

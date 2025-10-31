@@ -81,12 +81,18 @@ __device__ float _estimate(vec3 pos, float& trap) {
 
 __device__ float _estimate_notrap(vec3 pos) {
     vec3 v = pos;
-    float dr = 1.f;         // |v'|
-    float r = __length(v);  // r = |v| = sqrt(x^2 + y^2 + z^2)
+    float dr = 1.f;  // |v'|
 
-    for (int i = 0; i < md_iter && r < bailout; ++i) {
+    float rxy, r;
+    float rxy2 = __fma(v.x, v.x, v.y * v.y);
+    float r2 = __fma(v.z, v.z, rxy2);  // r^2 = x^2 + y^2 + z^2
+
+    for (int i = 0; i < md_iter && r2 < bailout2; ++i) {
+        rxy = sqrtf(rxy2);  // rxy = sqrt(x^2 + y^2)
+        r = sqrtf(r2);      // r = sqrt(x^2 + y^2 + z^2)
+
         float theta = atan2f(v.y, v.x) * power;
-        float phi = asinf(__div(v.z, r)) * power;
+        float phi = atan2f(v.z, rxy) * power;
 
         float sin_theta, cos_theta;
         float sin_phi, cos_phi;
@@ -94,16 +100,17 @@ __device__ float _estimate_notrap(vec3 pos) {
         __sincosf(phi, &sin_phi, &cos_phi);
 
         float r_pow8, r_pow7;
-        __mendel_pow(r, r_pow7, r_pow8);
+        __mendel_pow2(r, r2, r_pow7, r_pow8);
 
-        // update vk+1
+        // update vk+1 and dr
         v = __fma(vec3(cos_theta * cos_phi, cos_phi * sin_theta, -sin_phi), r_pow8, pos);
-        // update dr
         dr = __fma(power * r_pow7, dr, 1.f);
 
-        r = __length(v);  // update r
+        rxy2 = __fma(v.x, v.x, v.y * v.y);
+        r2 = __fma(v.z, v.z, rxy2);  // r^2 = x^2 + y^2 + z^2
     }
 
+    r = sqrtf(r2);                         // r = sqrt(x^2 + y^2 + z^2)
     return 0.5f * logf(r) * __div(r, dr);  // mandelbulb's DE function
 }
 
@@ -162,7 +169,7 @@ __device__ vec3 calculate_norm(vec3 p) {
 
 #ifdef UNROLL_AA
 
-__global__ void __launch_bounds__(256, 4) _render_pixel_m(float* buffer, int m) {
+__global__ void __launch_bounds__(256, 8) _render_pixel_m(float* buffer, int m) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
@@ -230,7 +237,7 @@ __global__ void __launch_bounds__(256, 4) _render_pixel_m(float* buffer, int m) 
     buffer_pixel->w = 255.0f;
 }
 
-__global__ void _convert_pixel(float* src_buffer, uchar* dst_buffer) {
+__global__ void __launch_bounds__(256, 8) _convert_pixel(float* src_buffer, uchar* dst_buffer) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
@@ -330,14 +337,15 @@ void render(uchar* raw_image) {
 
     uchar* d_buffer;
     cudaMalloc((void**)&d_buffer, width * height * 4);
-
-    prepare_constants();
-
 #ifdef UNROLL_AA
     float* d_buffer_float;
     cudaMalloc((void**)&d_buffer_float, width * height * 4 * sizeof(float));
     cudaMemset(d_buffer_float, 0, width * height * 4 * sizeof(float));
+#endif
 
+    prepare_constants();
+
+#ifdef UNROLL_AA
     cudaStream_t stream[AA];
     for (int m = 0; m < AA; ++m) {
         int stream_idx = m;

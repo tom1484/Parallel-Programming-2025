@@ -48,11 +48,6 @@ int main(int argc, char** argv) {
 
     // Create image
     raw_image = new uchar[width * height * 4];
-    image = new uchar*[height];
-
-    for (int i = 0; i < height; ++i) {
-        image[i] = raw_image + i * width * 4;
-    }
 
     schedule_dim(width, height);
 #ifdef DEBUG
@@ -68,7 +63,6 @@ int main(int argc, char** argv) {
     // write_png_fast(argv[9], raw_image, width, height);
     write_png_custom(argv[9], raw_image, width, height);
     delete[] raw_image;
-    delete[] image;
 
 #ifndef SUBMIT
     auto __end = chrono::high_resolution_clock::now();

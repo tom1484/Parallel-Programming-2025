@@ -137,16 +137,16 @@ void write_png_custom(const char* filename, unsigned char* raw_image, unsigned w
     unsigned char ihdr[13];
     write_be32(ihdr + 0, width);
     write_be32(ihdr + 4, height);
-    ihdr[8]  = 8; // bit depth
-    ihdr[9]  = 6; // RGBA
-    ihdr[10] = 0; // compression
-    ihdr[11] = 0; // filter
-    ihdr[12] = 0; // interlace
+    ihdr[8] = 8;   // bit depth
+    ihdr[9] = 6;   // RGBA
+    ihdr[10] = 0;  // compression
+    ihdr[11] = 0;  // filter
+    ihdr[12] = 0;  // interlace
     write_chunk(fp, "IHDR", ihdr, 13);
 
     // image data sizes
     const uint32_t scanline_size = 1 + width * 4;  // 1 filter byte + RGBA
-    const uint32_t raw_size      = scanline_size * height;
+    const uint32_t raw_size = scanline_size * height;
 
     // DEFLATE uncompressed block limit
     const uint32_t MAX_BLOCK_SIZE = 65535u;
@@ -160,8 +160,8 @@ void write_png_custom(const char* filename, unsigned char* raw_image, unsigned w
     unsigned char* p = zlib_buf;
 
     // zlib header
-    *p++ = 0x78; // CMF
-    *p++ = 0x01; // FLG (store-only, FCHECK already ok)
+    *p++ = 0x78;  // CMF
+    *p++ = 0x01;  // FLG (store-only, FCHECK already ok)
 
     // Adler-32 state
     uint32_t s1 = 1;
