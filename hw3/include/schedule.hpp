@@ -5,6 +5,7 @@
 
 #define N_THREADS_X 32
 #define N_THREADS_Y 8
+#define N_THREADS (N_THREADS_X * N_THREADS_Y)
 
 typedef struct {
     int n_blocks_x;

@@ -169,7 +169,7 @@ __device__ vec3 calculate_norm(vec3 p) {
 
 #ifdef UNROLL_AA
 
-__global__ void __launch_bounds__(256, 8) _render_pixel_m(float* buffer, int m) {
+__global__ void __launch_bounds__(N_THREADS, 8) _render_pixel_m(float* buffer, int m) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
@@ -237,7 +237,7 @@ __global__ void __launch_bounds__(256, 8) _render_pixel_m(float* buffer, int m) 
     buffer_pixel->w = 255.0f;
 }
 
-__global__ void __launch_bounds__(256, 8) _convert_pixel(float* src_buffer, uchar* dst_buffer) {
+__global__ void _convert_pixel(float* src_buffer, uchar* dst_buffer) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
     if (x >= d_width || y >= d_height) return;
