@@ -1,0 +1,24 @@
+# Build artifacts
+.cache/
+build/
+validate
+
+# python cache
+__pycache__/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Other temporary or generated files
+*.log
+*.swp
+*~
+
+# Project specific ignores
+b10901002/
+b10901002.tar
+
+# LFS not working properly
+assets/testcases/
+assets/validation
