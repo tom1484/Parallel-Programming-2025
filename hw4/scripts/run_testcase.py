@@ -109,7 +109,9 @@ def run_testcase(
     no_srun = getattr(args, "no_srun", False)
 
     result = {
+        "input_path": None,
         "output_path": None,
+        "valid_path": None,
         "log_path": None,
         "success": False,
         "elapsed_time": None,
@@ -121,6 +123,7 @@ def run_testcase(
 
     os.makedirs(output_dir, exist_ok=True)
     output_path = make_output_path(output_dir, f"case{id:02d}.out")
+    valid_path = make_output_path(output_dir, f"case{id:02d}.valid")
     log_path = make_output_path(output_dir, f"case{id:02d}.log")
 
     ncu_path = make_output_path(output_dir, f"case{id:02d}.ncu-rep")
@@ -181,7 +184,9 @@ def run_testcase(
     if proc_result.returncode != 0:
         return result
 
+    result["input_path"] = input_path
     result["output_path"] = output_path
+    result["valid_path"] = valid_path
     if save_log:
         result["log_path"] = log_path
 
@@ -203,19 +208,20 @@ def run_testcase(
     return result
 
 
-def validate(output_path: str, valid_path: str) -> float:
-    output = cv2.imread(output_path)
-    valid = cv2.imread(valid_path)
-    if output is None or valid is None:
-        raise ValueError("Output or valid image could not be read.")
+def validate(input_path: str, output_path: str, valid_path: str) -> bool:
+    command = [
+        "assets/validation",
+        input_path,
+        output_path,
+    ]
+    with open(valid_path, "w") as valid_file:
+        proc_result = subprocess.run(
+            command, stdout=valid_file, stderr=subprocess.STDOUT
+        )
+    if proc_result.returncode != 0:
+        return False
 
-    output = output.astype("float32")
-    valid = valid.astype("float32")
-
-    diff = cv2.absdiff(output, valid).sum()
-    err = diff / valid.sum()
-
-    return err * 100.0
+    return True
 
 
 if __name__ == "__main__":
@@ -233,5 +239,5 @@ if __name__ == "__main__":
         print(f"Elapsed time: {result['elapsed_time']} us")
 
     if result["success"]:
-        error_percentage = validate(result["output_path"], result["valid_path"])
-        print(f"Validation error: {error_percentage:.4f}%")
+        is_valid = validate(result["input_path"], result["output_path"], result["valid_path"])
+        print(f"Validation result: {'Yes' if is_valid else 'No'}")
