@@ -3,7 +3,7 @@
 Submission preparation script for homework assignment.
 This script:
 1. Creates a submission/ folder
-2. Merges headers and source code into submission/hw3.cpp
+2. Merges headers and source code into submission/hw4.cu
 3. Extracts compiler flags from CMake and creates submission/Makefile
 """
 
@@ -32,8 +32,8 @@ def write_file(filepath, content):
 
 def extract_cmake_flags(build_dir="build/Release"):
     """Extract compiler flags from CMake-generated files."""
-    flags_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/flags.make")
-    link_file = os.path.join(build_dir, "CMakeFiles/hw3.dir/link.txt")
+    flags_file = os.path.join(build_dir, "CMakeFiles/hw4.dir/flags.make")
+    link_file = os.path.join(build_dir, "CMakeFiles/hw4.dir/link.txt")
 
     cuda_defines = ""
     cxx_defines = ""
@@ -129,21 +129,12 @@ def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
     headers = [
-        "common.hpp",
-        "io.hpp",
-        "render.hpp",
-        "schedule.hpp",
-        "utils.hpp",
-        "arithmetic.hpp",
+        # "sha256.h",
     ]
 
     sources = [
-        "global.cpp",
-        "hw3.cu",
-        "io.cpp",
-        "render.cu",
-        "schedule.cu",
-        "utils.cu",
+        # "sha256.cu",
+        "main.cu",
     ]
 
     merged_content = []
@@ -200,6 +191,27 @@ def merge_files():
     return "\n".join(merged_content)
 
 
+def copy_additional(submission_dir):
+    """Copy additional source and include files to submission directory."""
+    additional_sources = [
+        "src/sha256.cu",
+    ]
+
+    additional_includes = [
+        "include/sha256.h",
+    ]
+
+    for src in additional_sources:
+        dst = os.path.join(submission_dir, os.path.basename(src))
+        shutil.copy(src, dst)
+        print(f"Copied {src} to {dst}")
+
+    for inc in additional_includes:
+        dst = os.path.join(submission_dir, os.path.basename(inc))
+        shutil.copy(inc, dst)
+        print(f"Copied {inc} to {dst}")
+
+
 def main():
     """Main function to prepare submission."""
     print("Preparing submission...")
@@ -227,9 +239,13 @@ def main():
     merged_cpp = merge_files()
 
     # Write merged C++ file
-    cpp_output = os.path.join(submission_dir, "hw3.cu")
+    cpp_output = os.path.join(submission_dir, "hw4.cu")
     write_file(cpp_output, merged_cpp)
     print(f"Created {cpp_output}")
+
+    # Copy additional source and include files
+    print("Copying additional source and include files...")
+    copy_additional(submission_dir)
 
     # Create Makefile
     print("Creating Makefile...")

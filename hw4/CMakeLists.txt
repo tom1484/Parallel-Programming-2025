@@ -22,6 +22,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Specify source files for CUDA
 set(SRC
   "${CMAKE_SOURCE_DIR}/src/main.cu"
+  "${CMAKE_SOURCE_DIR}/src/sha256.cu"
 )
 set(SAMPLE_SRC
   "${CMAKE_SOURCE_DIR}/src/sample/main.cu"

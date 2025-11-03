@@ -1,0 +1,22 @@
+# Compilers
+NVCC := nvcc
+
+# Compiler flags
+CUDA_DEFINES := -DSUBMIT {cuda_defines}
+CUDA_FLAGS := -I. {cuda_flags}
+LDFLAGS :=
+
+# Source files
+TARGET := hw4
+
+.PHONY: all
+all: $(TARGET)
+
+$(TARGET): sha256.o hw4.cu
+	$(NVCC) $(CUDA_DEFINES) $(CUDA_FLAGS) hw4.cu sha256.cu -o $(TARGET) $(LDFLAGS)
+
+sha256.o: sha256.cu
+	$(NVCC) $(CUDA_DEFINES) $(CUDA_FLAGS) -c sha256.cu
+
+clean:
+	rm -rf hw4 *.o
