@@ -11,7 +11,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Release script for hw4.")
     parser.add_argument("id", type=int, help="The id of testcase to run.")
     parser.add_argument(
-        "--cpu",
+        "--sample",
         action="store_true",
         required=False,
         help="Use CPU version of the program.",
@@ -23,9 +23,6 @@ def parse_arguments():
         help="Skip building the project.",
     )
     parser.add_argument(
-        "--debug", action="store_true", required=False, help="Enable debug mode."
-    )
-    parser.add_argument(
         "--input_dir",
         type=str,
         default="assets/testcases",
@@ -34,7 +31,7 @@ def parse_arguments():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="results",
+        default="outputs",
         help="Directory to store output results.",
     )
     parser.add_argument(
@@ -82,43 +79,11 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def run_build(debug: bool, cpu: bool):
-    build_type = "Debug" if debug else "Release"
-    command = ["cmake", "--build", f"build/{build_type}", "-j"]
-    if cpu:
+def run_build(sample: bool):
+    command = ["cmake", "--build", f"build", "-j"]
+    if sample:
         command.extend(["--target", "sample"])
     subprocess.run(command, check=True)
-
-
-def read_testcase(input_file: str) -> dict:
-    data = {}
-    with open(input_file, "r") as f:
-        for line in f:
-            key, value = line.strip().split("=")
-            data[key] = value
-
-    # Check for required keys
-    required_keys = ["pos", "tarpos", "width", "height", "timelimit", "valid"]
-    for key in required_keys:
-        if key not in data:
-            raise ValueError(f"Missing required key '{key}' in testcase file.")
-
-    pos_data = data["pos"].split(" ")
-    if len(pos_data) != 3:
-        raise ValueError("Position data must contain exactly three values.")
-    data["pos"] = pos_data
-
-    tarpos_data = data["tarpos"].split(" ")
-    if len(tarpos_data) != 3:
-        raise ValueError("Target position data must contain exactly three values.")
-    data["tarpos"] = tarpos_data
-    
-    valid_path = data["valid"]
-    valid_name = os.path.basename(valid_path)
-    valid_path = os.path.join(os.path.dirname(input_file), valid_name)
-    data["valid"] = valid_path
-
-    return data
 
 
 def make_output_path(output_dir: str, filename: str):
@@ -130,19 +95,11 @@ def make_output_path(output_dir: str, filename: str):
 
 def run_testcase(
     id: int,
-    data: dict,
     args: argparse.Namespace,
 ) -> dict:
-    pos = data["pos"]
-    tarpos = data["tarpos"]
-    width = data["width"]
-    height = data["height"]
-    timelimit = data["timelimit"]
-    valid = data["valid"]
-
-    debug = getattr(args, "debug", False)
-    cpu = getattr(args, "cpu", False)
-    output_dir = getattr(args, "output_dir", "results")
+    sample = getattr(args, "sample", False)
+    input_dir = getattr(args, "input_dir", "assets/testcases")
+    output_dir = getattr(args, "output_dir", "outputs")
     save_log = getattr(args, "save_log", False)
     profile = getattr(args, "profile", False)
     profile_visual = getattr(args, "profile_visual", False)
@@ -154,36 +111,27 @@ def run_testcase(
     result = {
         "output_path": None,
         "log_path": None,
-        "valid_path": valid,
         "success": False,
         "elapsed_time": None,
     }
 
-    build_type = "Debug" if debug else "Release"
-
-    executable_name = "sample" if cpu else "hw4"
-    executable_path = os.path.join("build", build_type, executable_name)
+    executable_name = "sample" if sample else "hw4"
+    executable_path = os.path.join("build", executable_name)
+    input_path = os.path.join(input_dir, f"case{id:02d}.in")
 
     os.makedirs(output_dir, exist_ok=True)
-    output_path = make_output_path(output_dir, f"{id:02d}.png")
-    log_path = make_output_path(output_dir, f"{id:02d}.log")
+    output_path = make_output_path(output_dir, f"case{id:02d}.out")
+    log_path = make_output_path(output_dir, f"case{id:02d}.log")
 
-    ncu_path = make_output_path(output_dir, f"{id:02d}.ncu-rep")
+    ncu_path = make_output_path(output_dir, f"case{id:02d}.ncu-rep")
 
-    prof_path = make_output_path(output_dir, f"{id:02d}.prof")
-    prof_visual_path = make_output_path(output_dir, f"{id:02d}.nvvp")
-    prof_json_path = make_output_path(output_dir, f"{id:02d}.prof.json")
+    prof_path = make_output_path(output_dir, f"case{id:02d}.prof")
+    prof_visual_path = make_output_path(output_dir, f"case{id:02d}.nvvp")
+    prof_json_path = make_output_path(output_dir, f"case{id:02d}.prof.json")
 
     command = [
         executable_path,
-        pos[0],
-        pos[1],
-        pos[2],
-        tarpos[0],
-        tarpos[1],
-        tarpos[2],
-        width,
-        height,
+        input_path,
         output_path,
     ]
     if ncu:
@@ -209,10 +157,8 @@ def run_testcase(
         else:
             profile_command.extend(["--log-file", prof_path])
         command = profile_command + command
-    if not cpu and not no_srun:
-        srun_command = (
-            f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t {timelimit}".split(" ")
-        )
+    if not no_srun:
+        srun_command = f"srun -N 1 -n 1 --gpus-per-node 1 -A ACD114118 -t 4".split(" ")
         command = srun_command + command
 
     if dry_run:
@@ -276,15 +222,11 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     if not args.no_build:
-        run_build(args.debug, args.cpu)
-
-    testcase_file = os.path.join(args.input_dir, f"{args.id:02d}.txt")
-    testcase_data = read_testcase(testcase_file)
+        run_build(args.sample)
 
     result = run_testcase(
         id=args.id,
         args=args,
-        data=testcase_data,
     )
 
     if result["elapsed_time"] is not None:
