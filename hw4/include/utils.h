@@ -2,9 +2,9 @@
 #include <chrono>
 #include <string>
 
-#ifdef DEBUG
+#ifndef SUBMIT
 #define PRINTF(...) printf(__VA_ARGS__)
-#define EPRINTF(...) fprintf(std::stderr, __VA_ARGS__)
+#define EPRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define PRINTF(...) ((void)0)
 #define EPRINTF(...) ((void)0)
