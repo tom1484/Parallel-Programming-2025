@@ -1,4 +1,5 @@
 #include <cassert>
+#include <chrono>
 #include <string>
 
 #ifdef DEBUG
@@ -8,6 +9,23 @@
 #define PRINTF(...) ((void)0)
 #define EPRINTF(...) ((void)0)
 #endif
+
+#define PROFILE(name) Profiler __profiler(name)
+
+class Profiler {
+   public:
+    Profiler() {}
+    Profiler(const char* name) : name(name), start(std::chrono::high_resolution_clock::now()) {}
+    ~Profiler() {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        PRINTF("PROFILE [%s]: %ld us\n", name, elapsed.count());
+    }
+
+   private:
+    const char* name;
+    std::chrono::high_resolution_clock::time_point start;
+};
 
 // convert one hex-codec char to binary
 unsigned char decode(unsigned char c);
