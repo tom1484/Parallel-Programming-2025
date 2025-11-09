@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sha256.h"
+#include "sample/sha256.h"
 
 // circular shift - wiki:
 //     https://en.wikipedia.org/wiki/Circular_shift

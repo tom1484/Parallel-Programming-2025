@@ -13,7 +13,7 @@
 #include <iostream>
 #include <string>
 
-#include "sha256.h"
+#include "sample/sha256.h"
 
 ////////////////////////   Block   /////////////////////
 
