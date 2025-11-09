@@ -4,10 +4,45 @@
 #endif
 
 #include "hash.h"
+#include "schedule.h"
 #include "sha256.h"
 #include "utils.h"
 
 using namespace std;
+
+__constant__ HashBlock d_block;
+__constant__ unsigned char d_target_hex[32];
+
+__global__ void __launch_bounds__(N_THREADS_PER_BLOCK, N_BLOCKS_PER_SM)
+    check_one_nonce(SHA256* d_sha256_ctx, unsigned int* d_nonce, bool* d_found) {
+    HashBlock block = d_block;
+    unsigned char target_hex[32];
+    memcpy(target_hex, d_target_hex, 32);
+
+    unsigned int offset = gridDim.x * threadIdx.x;
+    if (0xffffffff - offset < blockIdx.x) {
+        return;
+    }
+    block.nonce = offset + blockIdx.x;
+
+    // check d_found
+    if (*d_found) {
+        return;
+    }
+
+    // sha256d
+    SHA256 sha256_ctx;
+    double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
+    if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
+    {
+        // atomic set d_found to true
+        if (atomicExch((int*)d_found, 1) == 0) {
+            // only the first thread to find the solution will write the result
+            *d_sha256_ctx = sha256_ctx;
+            *d_nonce = block.nonce;
+        }
+    }
+}
 
 void solve(FILE* fin, FILE* fout) {
     // **** read data *****
@@ -90,29 +125,59 @@ void solve(FILE* fin, FILE* fout) {
 
     // ********** find nonce **************
 
+    // SHA256 sha256_ctx;
+
+    // for (block.nonce = 0x00000000; block.nonce <= 0xffffffff; ++block.nonce) {
+    //     // sha256d
+    //     double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
+    //     if (block.nonce % 1000000 == 0) {
+    //         PRINTF("hash #%10u (big): ", block.nonce);
+    //         print_hex_inverse(sha256_ctx.b, 32);
+    //         PRINTF("\n");
+    //     }
+
+    //     if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
+    //     {
+    //         PRINTF("Found Solution!!\n");
+    //         PRINTF("hash #%10u (big): ", block.nonce);
+    //         print_hex_inverse(sha256_ctx.b, 32);
+    //         PRINTF("\n\n");
+
+    //         break;
+    //     }
+    // }
+
+    dim3 gridDim(N_BLOCKS);
+    dim3 blockDim(N_THREADS_PER_BLOCK);
+
+    // copy data to device
+    cudaMemcpyToSymbol(d_block, &block, sizeof(HashBlock));
+    cudaMemcpyToSymbol(d_target_hex, target_hex, 32);
+
+    // allocate device memory
+    SHA256* d_sha256_ctx;
+    unsigned int* d_nonce;
+    bool* d_found;
+    cudaMalloc((void**)&d_sha256_ctx, sizeof(SHA256));
+    cudaMalloc((void**)&d_nonce, sizeof(unsigned int));
+    cudaMalloc((void**)&d_found, sizeof(bool));
+
+    // set d_found to false
+    bool h_found = false;
+    cudaMemcpy(d_found, &h_found, sizeof(bool), cudaMemcpyHostToDevice);
+
+    check_one_nonce<<<gridDim, blockDim>>>(d_sha256_ctx, d_nonce, d_found);
+    cudaDeviceSynchronize();
+
     SHA256 sha256_ctx;
-
-    for (block.nonce = 0x00000000; block.nonce <= 0xffffffff; ++block.nonce) {
-        // sha256d
-        double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
-        if (block.nonce % 1000000 == 0) {
-            PRINTF("hash #%10u (big): ", block.nonce);
-            print_hex_inverse(sha256_ctx.b, 32);
-            PRINTF("\n");
-        }
-
-        if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
-        {
-            PRINTF("Found Solution!!\n");
-            PRINTF("hash #%10u (big): ", block.nonce);
-            print_hex_inverse(sha256_ctx.b, 32);
-            PRINTF("\n\n");
-
-            break;
-        }
-    }
+    unsigned int nonce;
+    cudaMemcpy(&sha256_ctx, d_sha256_ctx, sizeof(SHA256), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&nonce, d_nonce, sizeof(unsigned int), cudaMemcpyDeviceToHost);
 
     // print result
+    PRINTF("hash #%10u (big): ", nonce);
+    print_hex_inverse(sha256_ctx.b, 32);
+    PRINTF("\n\n");
 
     // little-endian
     PRINTF("hash(little): ");
@@ -125,7 +190,7 @@ void solve(FILE* fin, FILE* fout) {
     PRINTF("\n\n");
 
     for (int i = 0; i < 4; ++i) {
-        fprintf(fout, "%02x", ((unsigned char*)&block.nonce)[i]);
+        fprintf(fout, "%02x", ((unsigned char*)&nonce)[i]);
     }
     fprintf(fout, "\n");
 
@@ -148,11 +213,14 @@ int main(int argc, char** argv) {
 
     fscanf(fin, "%d\n", &totalblock);
     fprintf(fout, "%d\n", totalblock);
-    
-    PRINTF("Total blocks to solve: %d\n", totalblock);
 
     for (int i = 0; i < totalblock; ++i) {
-        solve(fin, fout);
+        {
+            char buf[32];
+            sprintf(buf, "Solving block %d/%d", i + 1, totalblock);
+            PROFILE(buf);
+            solve(fin, fout);
+        }
     }
 
 #ifndef SUBMIT

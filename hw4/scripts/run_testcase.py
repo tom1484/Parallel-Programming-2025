@@ -121,6 +121,9 @@ def run_testcase(
     executable_path = os.path.join("build", executable_name)
     input_path = os.path.join(input_dir, f"case{id:02d}.in")
 
+    if sample:
+        output_dir = os.path.join(output_dir, "sample")
+
     os.makedirs(output_dir, exist_ok=True)
     output_path = make_output_path(output_dir, f"case{id:02d}.out")
     valid_path = make_output_path(output_dir, f"case{id:02d}.valid")
@@ -239,5 +242,7 @@ if __name__ == "__main__":
         print(f"Elapsed time: {result['elapsed_time']} us")
 
     if result["success"]:
-        is_valid = validate(result["input_path"], result["output_path"], result["valid_path"])
+        is_valid = validate(
+            result["input_path"], result["output_path"], result["valid_path"]
+        )
         print(f"Validation result: {'Yes' if is_valid else 'No'}")

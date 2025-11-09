@@ -236,7 +236,7 @@ void solve(FILE* fin, FILE* fout) {
 
     SHA256 sha256_ctx;
 
-    for (block.nonce = 0x00000000; block.nonce <= 0xffffffff; ++block.nonce) {
+    for (block.nonce = 2304840783; block.nonce <= 0xffffffff; ++block.nonce) {
         // sha256d
         double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
         if (block.nonce % 1000000 == 0) {

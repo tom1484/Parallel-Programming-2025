@@ -4,7 +4,7 @@
 #include "hash.h"
 #include "utils.h"
 
-void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
+__host__ __device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
     SHA256 tmp;
     sha256(&tmp, (BYTE*)bytes, len);
     sha256(sha256_ctx, (BYTE*)&tmp, sizeof(tmp));

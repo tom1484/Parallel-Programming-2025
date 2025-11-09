@@ -9,7 +9,7 @@ typedef struct {
     unsigned int nonce;
 } HashBlock;
 
-void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len);
+__host__ __device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len);
 
 // calculate merkle root from several merkle branches
 // root: output hash will store here (little-endian)

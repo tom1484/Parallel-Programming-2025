@@ -21,10 +21,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Specify source files for CUDA
 set(SRC
-  "${CMAKE_SOURCE_DIR}/src/main.cu"
-  "${CMAKE_SOURCE_DIR}/src/sha256.cu"
   "${CMAKE_SOURCE_DIR}/src/utils.cu"
+  "${CMAKE_SOURCE_DIR}/src/sha256.cu"
   "${CMAKE_SOURCE_DIR}/src/hash.cu"
+  "${CMAKE_SOURCE_DIR}/src/main.cu"
 )
 set(SAMPLE_SRC
   "${CMAKE_SOURCE_DIR}/src/sample/main.cu"
@@ -47,9 +47,14 @@ target_compile_options(hw4
       -use_fast_math
       -fmad true
       --generate-line-info
-      -Xptxas -O3,-maxrregcount=48,--optimize-float-atomics,-v
+      -rdc=true
+      -Xptxas -O3,-maxrregcount=64,--optimize-float-atomics,-v
       >
 )
+set_target_properties(hw4 PROPERTIES
+  CUDA_SEPARABLE_COMPILATION ON
+)
+
 target_compile_options(sample
   PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:-w -Xptxas -O3,-v>

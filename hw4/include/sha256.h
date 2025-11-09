@@ -17,8 +17,8 @@ typedef union _sha256_ctx {
 } SHA256;
 
 //----------- FUNCTION DECLARATION --------
-void sha256_transform(SHA256* ctx, const BYTE* msg);
-void sha256(SHA256* ctx, const BYTE* msg, size_t len);
+__host__ __device__ void sha256_transform(SHA256* ctx, const BYTE* msg);
+__host__ __device__ void sha256(SHA256* ctx, const BYTE* msg, size_t len);
 
 #ifdef __cplusplus
 }

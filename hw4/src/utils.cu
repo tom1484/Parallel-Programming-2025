@@ -30,7 +30,7 @@ void convert_string_to_little_endian_bytes(unsigned char* out, char* in, size_t 
     }
 }
 
-int little_endian_bit_comparison(const unsigned char* a, const unsigned char* b, size_t byte_len) {
+__host__ __device__ int little_endian_bit_comparison(const unsigned char* a, const unsigned char* b, size_t byte_len) {
     // compared from lowest bit
     for (int i = byte_len - 1; i >= 0; --i) {
         if (a[i] < b[i])
