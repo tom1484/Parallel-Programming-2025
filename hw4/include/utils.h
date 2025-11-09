@@ -1,6 +1,14 @@
 #include <cassert>
 #include <string>
 
+#ifdef DEBUG
+#define PRINTF(...) printf(__VA_ARGS__)
+#define EPRINTF(...) fprintf(std::stderr, __VA_ARGS__)
+#else
+#define PRINTF(...) ((void)0)
+#define EPRINTF(...) ((void)0)
+#endif
+
 // convert one hex-codec char to binary
 unsigned char decode(unsigned char c);
 

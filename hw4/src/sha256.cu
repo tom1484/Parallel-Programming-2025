@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "sha256.h"
+#include "utils.h"
 
 // circular shift - wiki:
 //     https://en.wikipedia.org/wiki/Circular_shift
@@ -123,7 +124,7 @@ void sha256(SHA256* ctx, const BYTE* msg, size_t len) {
     if (j > 56) {
         sha256_transform(ctx, m);
         memset(m, 0, sizeof(m));
-        printf("true\n");
+        PRINTF("true\n");
     }
 
     // Append L as a 64-bit bug-endian integer, making the total post-processed length a multiple of 512 bits
@@ -149,39 +150,39 @@ void sha256(SHA256* ctx, const BYTE* msg, size_t len) {
 // Unit test
 #ifdef __SHA256_UNITTEST__
 #define print_hash(x)        \
-    printf("sha256 hash: "); \
-    for (int i = 0; i < 32; ++i) printf("%02X", (x).b[i]);
-#define print_msg(x) printf("%s", ((x) ? "Pass" : "Failed"))
+    PRINTF("sha256 hash: "); \
+    for (int i = 0; i < 32; ++i) PRINTF("%02X", (x).b[i]);
+#define print_msg(x) PRINTF("%s", ((x) ? "Pass" : "Failed"))
 
 int main(int argc, char** argv) {
     SHA256 ctx;
 
     // ------------------ Stage 1: abc
-    printf("------- Stage 1 : abc -------\n");
+    PRINTF("------- Stage 1 : abc -------\n");
     BYTE abc[] = "abc";
     BYTE abcans[] = {0xBA, 0x78, 0x16, 0xBF, 0x8F, 0x01, 0xCF, 0xEA, 0x41, 0x41, 0x40, 0xDE, 0x5D, 0xAE, 0x22, 0x23,
                      0xB0, 0x03, 0x61, 0xA3, 0x96, 0x17, 0x7A, 0x9C, 0xB4, 0x10, 0xFF, 0x61, 0xF2, 0x00, 0x15, 0xAD};
     size_t abclen = sizeof(abc) - 1;
     sha256(&ctx, abc, abclen);
     print_hash(ctx);
-    printf("\nResult: ");
+    PRINTF("\nResult: ");
     print_msg(!memcmp(abcans, ctx.b, 32));
-    printf("\n\n");
+    PRINTF("\n\n");
 
     // ------------------ Stage 2: len55
-    printf("------ Stage 2 : len55 ------\n");
+    PRINTF("------ Stage 2 : len55 ------\n");
     BYTE len55[] = "1234567890123456789012345678901234567890123456789012345";
     BYTE len55ans[] = {0x03, 0xC3, 0xA7, 0x0E, 0x99, 0xED, 0x5E, 0xEC, 0xCD, 0x80, 0xF7, 0x37, 0x71, 0xFC, 0xF1, 0xEC,
                        0xE6, 0x43, 0xD9, 0x39, 0xD9, 0xEC, 0xC7, 0x6F, 0x25, 0x54, 0x4B, 0x02, 0x33, 0xF7, 0x08, 0xE9};
     size_t len55len = sizeof(len55) - 1;
     sha256(&ctx, len55, len55len);
     print_hash(ctx);
-    printf("\nResult: ");
+    PRINTF("\nResult: ");
     print_msg(!memcmp(len55ans, ctx.b, 32));
-    printf("\n\n");
+    PRINTF("\n\n");
 
     // ------------------ Stage 3: len290
-    printf("----- Stage 3 : len290 ------\n");
+    PRINTF("----- Stage 3 : len290 ------\n");
     BYTE len290[] =
         "ads;flkjas;dlkfjads;flkjads;flkafdlkjhfdalkjgadslfkjhadsjhfveroi"
         "uhwerpiuhwerptoiuywerptoiuywterypoihslgkjhdxzflgknbzsfdlkgjhsdfp"
@@ -193,9 +194,9 @@ int main(int argc, char** argv) {
     size_t len290len = sizeof(len290) - 1;
     sha256(&ctx, len290, len290len);
     print_hash(ctx);
-    printf("\nResult: ");
+    PRINTF("\nResult: ");
     print_msg(!memcmp(len290ans, ctx.b, 32));
-    printf("\n\n");
+    PRINTF("\n\n");
 
     return 0;
 }

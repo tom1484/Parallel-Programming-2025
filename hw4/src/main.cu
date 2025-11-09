@@ -24,7 +24,7 @@ void solve(FILE* fin, FILE* fout) {
     getline(ntime, 9, fin);
     getline(nbits, 9, fin);
     fscanf(fin, "%d\n", &tx);
-    printf("start hashing");
+    PRINTF("start hashing");
 
     raw_merkle_branch = new char[tx * 65];
     merkle_branch = new char*[tx];
@@ -39,24 +39,24 @@ void solve(FILE* fin, FILE* fout) {
     unsigned char merkle_root[32];
     calc_merkle_root(merkle_root, tx, merkle_branch);
 
-    printf("merkle root(little): ");
+    PRINTF("merkle root(little): ");
     print_hex(merkle_root, 32);
-    printf("\n");
+    PRINTF("\n");
 
-    printf("merkle root(big):    ");
+    PRINTF("merkle root(big):    ");
     print_hex_inverse(merkle_root, 32);
-    printf("\n");
+    PRINTF("\n");
 
     // **** solve block ****
-    printf("Block info (big): \n");
-    printf("  version:  %s\n", version);
-    printf("  pervhash: %s\n", prevhash);
-    printf("  merkleroot: ");
+    PRINTF("Block info (big): \n");
+    PRINTF("  version:  %s\n", version);
+    PRINTF("  pervhash: %s\n", prevhash);
+    PRINTF("  merkleroot: ");
     print_hex_inverse(merkle_root, 32);
-    printf("\n");
-    printf("  nbits:    %s\n", nbits);
-    printf("  ntime:    %s\n", ntime);
-    printf("  nonce:    ???\n\n");
+    PRINTF("\n");
+    PRINTF("  nbits:    %s\n", nbits);
+    PRINTF("  ntime:    %s\n", ntime);
+    PRINTF("  nonce:    ???\n\n");
 
     HashBlock block;
 
@@ -84,9 +84,9 @@ void solve(FILE* fin, FILE* fout) {
     target_hex[sb + 2] = (mant >> (16 - rb));
     target_hex[sb + 3] = (mant >> (24 - rb));
 
-    printf("Target value (big): ");
+    PRINTF("Target value (big): ");
     print_hex_inverse(target_hex, 32);
-    printf("\n");
+    PRINTF("\n");
 
     // ********** find nonce **************
 
@@ -96,17 +96,17 @@ void solve(FILE* fin, FILE* fout) {
         // sha256d
         double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
         if (block.nonce % 1000000 == 0) {
-            printf("hash #%10u (big): ", block.nonce);
+            PRINTF("hash #%10u (big): ", block.nonce);
             print_hex_inverse(sha256_ctx.b, 32);
-            printf("\n");
+            PRINTF("\n");
         }
 
         if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
         {
-            printf("Found Solution!!\n");
-            printf("hash #%10u (big): ", block.nonce);
+            PRINTF("Found Solution!!\n");
+            PRINTF("hash #%10u (big): ", block.nonce);
             print_hex_inverse(sha256_ctx.b, 32);
-            printf("\n\n");
+            PRINTF("\n\n");
 
             break;
         }
@@ -115,14 +115,14 @@ void solve(FILE* fin, FILE* fout) {
     // print result
 
     // little-endian
-    printf("hash(little): ");
+    PRINTF("hash(little): ");
     print_hex(sha256_ctx.b, 32);
-    printf("\n");
+    PRINTF("\n");
 
     // big-endian
-    printf("hash(big):    ");
+    PRINTF("hash(big):    ");
     print_hex_inverse(sha256_ctx.b, 32);
-    printf("\n\n");
+    PRINTF("\n\n");
 
     for (int i = 0; i < 4; ++i) {
         fprintf(fout, "%02x", ((unsigned char*)&block.nonce)[i]);
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
 #endif
 
     if (argc != 3) {
-        fprintf(stderr, "usage: cuda_miner <in> <out>\n");
+        EPRINTF("usage: cuda_miner <in> <out>\n");
     }
     FILE* fin = fopen(argv[1], "r");
     FILE* fout = fopen(argv[2], "w");
@@ -148,6 +148,8 @@ int main(int argc, char** argv) {
 
     fscanf(fin, "%d\n", &totalblock);
     fprintf(fout, "%d\n", totalblock);
+    
+    PRINTF("Total blocks to solve: %d\n", totalblock);
 
     for (int i = 0; i < totalblock; ++i) {
         solve(fin, fout);

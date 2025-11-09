@@ -43,13 +43,13 @@ int little_endian_bit_comparison(const unsigned char* a, const unsigned char* b,
 
 void print_hex(unsigned char* hex, size_t len) {
     for (int i = 0; i < len; ++i) {
-        printf("%02x", hex[i]);
+        PRINTF("%02x", hex[i]);
     }
 }
 
 void print_hex_inverse(unsigned char* hex, size_t len) {
     for (int i = len - 1; i >= 0; --i) {
-        printf("%02x", hex[i]);
+        PRINTF("%02x", hex[i]);
     }
 }
 

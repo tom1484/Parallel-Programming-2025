@@ -17,6 +17,12 @@ def parse_arguments():
         help="Use CPU version of the program.",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        required=False,
+        help="Enable debug mode.",
+    )
+    parser.add_argument(
         "--no_build",
         action="store_true",
         required=False,
@@ -79,10 +85,12 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def run_build(sample: bool):
+def run_build(sample: bool, debug: bool):
     command = ["cmake", "--build", f"build", "-j"]
     if sample:
         command.extend(["--target", "sample"])
+    if debug:
+        command.extend(["--config", "Debug"])
     subprocess.run(command, check=True)
 
 
@@ -228,7 +236,7 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     if not args.no_build:
-        run_build(args.sample)
+        run_build(args.sample, args.debug)
 
     result = run_testcase(
         id=args.id,
