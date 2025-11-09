@@ -23,6 +23,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(SRC
   "${CMAKE_SOURCE_DIR}/src/main.cu"
   "${CMAKE_SOURCE_DIR}/src/sha256.cu"
+  "${CMAKE_SOURCE_DIR}/src/utils.cu"
+  "${CMAKE_SOURCE_DIR}/src/hash.cu"
 )
 set(SAMPLE_SRC
   "${CMAKE_SOURCE_DIR}/src/sample/main.cu"
