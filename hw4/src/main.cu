@@ -15,14 +15,12 @@ __constant__ unsigned char d_target_hex[32];
 
 __global__ void __launch_bounds__(N_THREADS_PER_BLOCK, N_BLOCKS_PER_SM)
     check_one_nonce(SHA256* d_sha256_ctx, unsigned int* d_nonce, bool* d_found) {
-    HashBlock block = d_block;
-    unsigned char target_hex[32];
-    memcpy(target_hex, d_target_hex, 32);
-
     unsigned int offset = gridDim.x * threadIdx.x;
     if (0xffffffff - offset < blockIdx.x) {
         return;
     }
+
+    HashBlock block = d_block;
     block.nonce = offset + blockIdx.x;
 
     // check d_found
@@ -33,7 +31,7 @@ __global__ void __launch_bounds__(N_THREADS_PER_BLOCK, N_BLOCKS_PER_SM)
     // sha256d
     SHA256 sha256_ctx;
     double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
-    if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
+    if (little_endian_bit_comparison(sha256_ctx.b, d_target_hex, 32) < 0)  // sha256_ctx < target_hex
     {
         // atomic set d_found to true
         if (atomicExch((int*)d_found, 1) == 0) {
