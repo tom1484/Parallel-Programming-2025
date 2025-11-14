@@ -3,10 +3,6 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif  //__cplusplus
-
 //--------------- DATA TYPES --------------
 typedef unsigned int WORD;
 typedef unsigned char BYTE;
@@ -17,11 +13,18 @@ typedef union _sha256_ctx {
 } SHA256;
 
 //----------- FUNCTION DECLARATION --------
-__host__ __device__ void sha256_transform(SHA256* ctx, const BYTE* msg);
-__host__ __device__ void sha256(SHA256* ctx, const BYTE* msg, size_t len);
+namespace device {
 
-#ifdef __cplusplus
-}
-#endif  //__cplusplus
+__device__ void sha256_transform(SHA256* ctx, const BYTE* msg);
+__device__ void sha256(SHA256* ctx, const BYTE* msg, size_t len);
+
+}  // namespace device
+
+namespace host {
+
+void sha256_transform(SHA256* ctx, const BYTE* msg);
+void sha256(SHA256* ctx, const BYTE* msg, size_t len);
+
+}  // namespace host
 
 #endif  //__SHA256_HEADER__

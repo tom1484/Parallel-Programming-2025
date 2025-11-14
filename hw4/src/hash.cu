@@ -4,7 +4,19 @@
 #include "hash.h"
 #include "utils.h"
 
-__host__ __device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
+namespace device {
+
+__device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
+    SHA256 tmp;
+    sha256(&tmp, (BYTE*)bytes, len);
+    sha256(sha256_ctx, (BYTE*)&tmp, sizeof(tmp));
+}
+
+}  // namespace device
+
+namespace host {
+
+void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
     SHA256 tmp;
     sha256(&tmp, (BYTE*)bytes, len);
     sha256(sha256_ctx, (BYTE*)&tmp, sizeof(tmp));
@@ -52,3 +64,5 @@ void calc_merkle_root(unsigned char* root, int count, char** branch) {
     delete[] raw_list;
     delete[] list;
 }
+
+}  // namespace host

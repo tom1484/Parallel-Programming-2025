@@ -30,7 +30,7 @@ __global__ void __launch_bounds__(N_THREADS_PER_BLOCK, N_BLOCKS_PER_SM)
 
     // sha256d
     SHA256 sha256_ctx;
-    double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
+    device::double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
     if (little_endian_bit_comparison(sha256_ctx.b, d_target_hex, 32) < 0)  // sha256_ctx < target_hex
     {
         // atomic set d_found to true
@@ -70,7 +70,7 @@ void solve(FILE* fin, FILE* fout) {
     // **** calculate merkle root ****
 
     unsigned char merkle_root[32];
-    calc_merkle_root(merkle_root, tx, merkle_branch);
+    host::calc_merkle_root(merkle_root, tx, merkle_branch);
 
     PRINTF("merkle root(little): ");
     print_hex(merkle_root, 32);
@@ -122,28 +122,6 @@ void solve(FILE* fin, FILE* fout) {
     PRINTF("\n");
 
     // ********** find nonce **************
-
-    // SHA256 sha256_ctx;
-
-    // for (block.nonce = 0x00000000; block.nonce <= 0xffffffff; ++block.nonce) {
-    //     // sha256d
-    //     double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
-    //     if (block.nonce % 1000000 == 0) {
-    //         PRINTF("hash #%10u (big): ", block.nonce);
-    //         print_hex_inverse(sha256_ctx.b, 32);
-    //         PRINTF("\n");
-    //     }
-
-    //     if (little_endian_bit_comparison(sha256_ctx.b, target_hex, 32) < 0)  // sha256_ctx < target_hex
-    //     {
-    //         PRINTF("Found Solution!!\n");
-    //         PRINTF("hash #%10u (big): ", block.nonce);
-    //         print_hex_inverse(sha256_ctx.b, 32);
-    //         PRINTF("\n\n");
-
-    //         break;
-    //     }
-    // }
 
     dim3 gridDim(N_BLOCKS);
     dim3 blockDim(N_THREADS_PER_BLOCK);

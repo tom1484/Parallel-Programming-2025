@@ -9,10 +9,20 @@ typedef struct {
     unsigned int nonce;
 } HashBlock;
 
-__host__ __device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len);
+namespace device {
+
+__device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len);
+
+}  // namespace device
+
+namespace host {
+
+void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len);
 
 // calculate merkle root from several merkle branches
 // root: output hash will store here (little-endian)
 // branch: merkle branch  (big-endian)
 // count: total number of merkle branch
 void calc_merkle_root(unsigned char* root, int count, char** branch);
+
+}  // namespace host
