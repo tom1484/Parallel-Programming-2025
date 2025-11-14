@@ -3,13 +3,6 @@
 
 #include <stddef.h>
 
-#define DEFINE_H \
-    WORD h0, WORD h1, WORD h2, WORD h3, \
-    WORD h4, WORD h5, WORD h6, WORD h7
-#define PASS_H \
-    h0, h1, h2, h3, \
-    h4, h5, h6, h7
-
 //--------------- DATA TYPES --------------
 typedef unsigned int WORD;
 typedef unsigned char BYTE;

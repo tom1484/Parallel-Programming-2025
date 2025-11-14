@@ -8,7 +8,6 @@
 #include <string.h>
 
 #include "sha256.h"
-#include "utils.h"
 
 // circular shift - wiki:
 //     https://en.wikipedia.org/wiki/Circular_shift
@@ -268,7 +267,6 @@ void sha256(SHA256* ctx, const BYTE* msg, size_t len) {
     if (j > 56) {
         sha256_transform(ctx, m);
         memset(m, 0, sizeof(m));
-        PRINTF("true\n");
     }
 
     // Append L as a 64-bit bug-endian integer, making the total post-processed length a multiple of 512 bits
