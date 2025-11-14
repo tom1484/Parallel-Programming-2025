@@ -48,8 +48,7 @@ target_compile_options(hw4
       -fmad true
       --generate-line-info
       -rdc=true
-      -Xptxas -O3,-maxrregcount=128,--optimize-float-atomics,-v
-      # -Xptxas -O3,--optimize-float-atomics,-v
+      -Xptxas -O3,-maxrregcount=128,-v
       >
 )
 set_target_properties(hw4 PROPERTIES

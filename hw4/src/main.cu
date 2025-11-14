@@ -31,6 +31,7 @@ __global__ void __launch_bounds__(N_THREADS_PER_BLOCK, N_BLOCKS_PER_SM)
     // sha256d
     SHA256 sha256_ctx;
     device::double_sha256(&sha256_ctx, (unsigned char*)&block, sizeof(block));
+
     if (little_endian_bit_comparison(sha256_ctx.b, d_target_hex, 32) < 0)  // sha256_ctx < target_hex
     {
         // atomic set d_found to true
@@ -71,6 +72,10 @@ void solve(FILE* fin, FILE* fout) {
 
     unsigned char merkle_root[32];
     host::calc_merkle_root(merkle_root, tx, merkle_branch);
+
+    // HashBlock tmp;
+    // PRINTF("Size %d", sizeof(tmp));
+    // PRINTF("\n");
 
     PRINTF("merkle root(little): ");
     print_hex(merkle_root, 32);
@@ -123,6 +128,7 @@ void solve(FILE* fin, FILE* fout) {
 
     // ********** find nonce **************
 
+    // Launch kernel
     dim3 gridDim(N_BLOCKS);
     dim3 blockDim(N_THREADS_PER_BLOCK);
 

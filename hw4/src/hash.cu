@@ -8,8 +8,8 @@ namespace device {
 
 __device__ void double_sha256(SHA256* sha256_ctx, unsigned char* bytes, size_t len) {
     SHA256 tmp;
-    sha256_80(&tmp, (BYTE*)bytes, len);
-    sha256_64(sha256_ctx, (BYTE*)&tmp, sizeof(tmp));
+    sha256_80(&tmp, (BYTE*)bytes, 80);
+    sha256_32(sha256_ctx, (BYTE*)&tmp, 32);
 }
 
 }  // namespace device

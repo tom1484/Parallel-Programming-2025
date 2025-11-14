@@ -33,7 +33,7 @@ __device__ __forceinline__ WORD rotr(WORD x, int n) {
     return __funnelshift_r(x, x, n);  // fast rotate
 }
 
-__device__ void sha256_transform(SHA256* ctx, const BYTE* msg) {
+__device__ __forceinline__ void sha256_transform(SHA256* ctx, const BYTE* msg) {
     WORD a, b, c, d, e, f, g, h;
     WORD w[16];
 
@@ -98,241 +98,68 @@ __device__ __forceinline__ void sha256_init(SHA256* ctx) {
     ctx->h[7] = 0x5be0cd19;
 }
 
-__device__ void sha256(SHA256* ctx, const BYTE* msg, size_t len) {
+__device__ void sha256_32(SHA256* ctx, const BYTE* msg, size_t len) {
     sha256_init(ctx);
 
-    WORD i, j;
-    size_t remain = len % 64;
-    size_t total_len = len - remain;
-
-    // Process the message in successive 512-bit chunks
-    // For each chunk:
-    for (i = 0; i < total_len; i += 64) {
-        sha256_transform(ctx, &msg[i]);
+    BYTE buf[64] = {};
+#pragma unroll
+    for (int i = 0; i < 32; ++i) {
+        buf[i] = msg[i];
     }
-
-    // Process remain data
-    BYTE m[64] = {};
-    for (i = total_len, j = 0; i < len; ++i, ++j) {
-        m[j] = msg[i];
-    }
-
-    // Append a single '1' bit
-    m[j++] = 0x80;  // 1000 0000
-
-    // Append K '0' bits, where k is the minimum number >= 0 such that L + 1 + K + 64 is a multiple of 512
-    if (j > 56) {
-        sha256_transform(ctx, m);
-        memset(m, 0, sizeof(m));
-        PRINTF("true\n");
-    }
+    buf[32] = 0x80;  // 1000 0000
 
     // Append L as a 64-bit bug-endian integer, making the total post-processed length a multiple of 512 bits
-    unsigned long long L = len * 8;  // bits
-    m[63] = L;
-    m[62] = L >> 8;
-    m[61] = L >> 16;
-    m[60] = L >> 24;
-    m[59] = L >> 32;
-    m[58] = L >> 40;
-    m[57] = L >> 48;
-    m[56] = L >> 56;
-    sha256_transform(ctx, m);
+    unsigned long long L = 256;  // bits
+    buf[63] = 256;
+    buf[62] = 1;
+
+#pragma unroll
+    for (int i = 33; i < 62; ++i) {
+        buf[i] = 0;
+    }
+    sha256_transform(ctx, buf);
 
     // Produce the final hash value (little-endian to big-endian)
     // Swap 1st & 4th, 2nd & 3rd byte for each word
-    for (i = 0; i < 32; i += 4) {
-        _swap(ctx->b[i], ctx->b[i + 3]);
-        _swap(ctx->b[i + 1], ctx->b[i + 2]);
-    }
-}
-
-__device__ void sha256_64(SHA256* ctx, const BYTE* msg, size_t len) {
-    // 1) init
-    sha256_init(ctx);
-
-    // 2) first chunk: the 64-byte message itself
-    sha256_transform(ctx, msg);
-
-    // 3) second chunk: padding-only block
-    WORD a = ctx->h[0];
-    WORD b = ctx->h[1];
-    WORD c = ctx->h[2];
-    WORD d = ctx->h[3];
-    WORD e = ctx->h[4];
-    WORD f = ctx->h[5];
-    WORD g = ctx->h[6];
-    WORD h = ctx->h[7];
-
-    WORD w[16];
-
-    // For 64-byte message, second block bytes are:
-    //   0x80, 0x00 ... 0x00, (length=512 bits as 64-bit big-endian)
-    //
-    // As words:
-    //   w[0]  = 0x80000000
-    //   w[1]..w[13] = 0
-    //   w[14] = 0
-    //   w[15] = 512
-
-    w[0] = 0x80000000u;
-
-#pragma unroll
-    for (int i = 1; i <= 13; ++i) {
-        w[i] = 0;
-    }
-
-    w[14] = 0;     // high 32 bits of length
-    w[15] = 512u;  // low 32 bits = 64 * 8
-
-// 4) standard 64-round compression with rolling w[16]
-#pragma unroll
-    for (int i = 0; i < 64; ++i) {
-        int wi = i & 15;
-        if (i >= 16) {
-            WORD x1 = w[(wi + 1) & 15];
-            WORD x14 = w[(wi + 14) & 15];
-            WORD s0 = rotr(x1, 7) ^ rotr(x1, 18) ^ (x1 >> 3);
-            WORD s1 = rotr(x14, 17) ^ rotr(x14, 19) ^ (x14 >> 10);
-            w[wi] += s0 + w[(wi + 9) & 15] + s1;
-        }
-
-        WORD S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
-        WORD S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
-        WORD ch = (e & f) ^ ((~e) & g);
-        WORD maj = (a & b) ^ (a & c) ^ (b & c);
-        WORD t1 = h + S1 + ch + k[i] + w[wi];
-        WORD t2 = S0 + maj;
-
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + t2;
-    }
-
-    ctx->h[0] += a;
-    ctx->h[1] += b;
-    ctx->h[2] += c;
-    ctx->h[3] += d;
-    ctx->h[4] += e;
-    ctx->h[5] += f;
-    ctx->h[6] += g;
-    ctx->h[7] += h;
-
-// 5) final byte swap: little-endian <-> big-endian
 #pragma unroll
     for (int i = 0; i < 32; i += 4) {
-        BYTE* b8 = &ctx->b[i];
-        BYTE t;
-        t = b8[0];
-        b8[0] = b8[3];
-        b8[3] = t;
-        t = b8[1];
-        b8[1] = b8[2];
-        b8[2] = t;
+        _swap(ctx->b[i], ctx->b[i + 3]);
+        _swap(ctx->b[i + 1], ctx->b[i + 2]);
     }
 }
 
 __device__ void sha256_80(SHA256* ctx, const BYTE* msg, size_t len) {
     sha256_init(ctx);
 
-    // --- Chunk 0: first 64 bytes of HashBlock ---
-    sha256_transform(ctx, msg);  // bytes 0..63
+    sha256_transform(ctx, msg);
 
-    // --- Chunk 1: last 16 bytes + padding + length ---
-
-    // We'll now do one more transform, but build the 16 words directly.
-    WORD a = ctx->h[0];
-    WORD b = ctx->h[1];
-    WORD c = ctx->h[2];
-    WORD d = ctx->h[3];
-    WORD e = ctx->h[4];
-    WORD f = ctx->h[5];
-    WORD g = ctx->h[6];
-    WORD h = ctx->h[7];
-
-    WORD w[16];
-
-// bytes 64..79 (16 bytes of header)
-// build them as big-endian words w[0..3]
+    // Process remain data
+    BYTE buf[64] = {};
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
-        int j = 64 + i * 4;
-        w[i] = (WORD(msg[j]) << 24) | (WORD(msg[j + 1]) << 16) | (WORD(msg[j + 2]) << 8) | (WORD(msg[j + 3]));
+    for (int i = 64, j = 0; i < 80; ++i, ++j) {
+        buf[j] = msg[i];
     }
 
-    // Now padding:
-    // next byte is 0x80, rest zeros until the last 8 bytes encode bit length (80 * 8 = 640)
-    //
-    // In bytes, second chunk looks like:
-    //   [80 bytes header remainder][0x80][0 ... 0][0 0 0 0 0 0 0x02 0x80]
-    // But we work directly as words:
+    // Append a single '1' bit
+    buf[16] = 0x80;  // 1000 0000
 
-    // word w[4] contains 0x80 followed by 3 zero bytes
-    w[4] = 0x80000000u;
-// w[5]..w[13] are all zeros
+    // Append L as a 64-bit bug-endian integer, making the total post-processed length a multiple of 512 bits
+    unsigned long long L = 640;  // bits
+    buf[63] = 640;
+    buf[62] = 2;
+
 #pragma unroll
-    for (int i = 5; i <= 13; ++i) {
-        w[i] = 0;
+    for (int i = 17; i < 62; ++i) {
+        buf[i] = 0;
     }
-    // bit length = 80 * 8 = 640 = 0x0000000000000280
-    // last two words represent the 64-bit length in big-endian
-    w[14] = 0;     // high 32 bits
-    w[15] = 640u;  // low 32 bits = 0x00000280
+    sha256_transform(ctx, buf);
 
-// Now run standard 64 rounds with rolling buffer using this w[16]
-#pragma unroll
-    for (int i = 0; i < 64; ++i) {
-        int wi = i & 15;
-        if (i >= 16) {
-            WORD x1 = w[(wi + 1) & 15];
-            WORD x14 = w[(wi + 14) & 15];
-            WORD s0 = rotr(x1, 7) ^ rotr(x1, 18) ^ (x1 >> 3);
-            WORD s1 = rotr(x14, 17) ^ rotr(x14, 19) ^ (x14 >> 10);
-            w[wi] += s0 + w[(wi + 9) & 15] + s1;
-        }
-
-        WORD S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
-        WORD S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
-        WORD ch = (e & f) ^ ((~e) & g);
-        WORD maj = (a & b) ^ (a & c) ^ (b & c);
-        WORD temp1 = h + S1 + ch + k[i] + w[wi];
-        WORD temp2 = S0 + maj;
-
-        h = g;
-        g = f;
-        f = e;
-        e = d + temp1;
-        d = c;
-        c = b;
-        b = a;
-        a = temp1 + temp2;
-    }
-
-    ctx->h[0] += a;
-    ctx->h[1] += b;
-    ctx->h[2] += c;
-    ctx->h[3] += d;
-    ctx->h[4] += e;
-    ctx->h[5] += f;
-    ctx->h[6] += g;
-    ctx->h[7] += h;
-
-// Final byte swap (same as your original)
+    // Produce the final hash value (little-endian to big-endian)
+    // Swap 1st & 4th, 2nd & 3rd byte for each word
 #pragma unroll
     for (int i = 0; i < 32; i += 4) {
-        BYTE* b8 = &ctx->b[i];
-        BYTE t;
-        t = b8[0];
-        b8[0] = b8[3];
-        b8[3] = t;
-        t = b8[1];
-        b8[1] = b8[2];
-        b8[2] = t;
+        _swap(ctx->b[i], ctx->b[i + 3]);
+        _swap(ctx->b[i + 1], ctx->b[i + 2]);
     }
 }
 
@@ -349,6 +176,8 @@ static const WORD k[64] = {
     0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+
+WORD u32be(const BYTE* b) { return ((WORD)b[0] << 24) | ((WORD)b[1] << 16) | ((WORD)b[2] << 8) | ((WORD)b[3]); }
 
 void sha256_transform(SHA256* ctx, const BYTE* msg) {
     WORD a, b, c, d, e, f, g, h;
