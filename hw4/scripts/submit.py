@@ -30,7 +30,7 @@ def write_file(filepath, content):
         f.write(content)
 
 
-def extract_cmake_flags(build_dir="build/Release"):
+def extract_cmake_flags(build_dir="build"):
     """Extract compiler flags from CMake-generated files."""
     flags_file = os.path.join(build_dir, "CMakeFiles/hw4.dir/flags.make")
     link_file = os.path.join(build_dir, "CMakeFiles/hw4.dir/link.txt")
@@ -129,11 +129,14 @@ def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
     headers = [
-        # "sha256.h",
+        "utils.h",
+        "hash.h",
+        "schedule.h",
     ]
 
     sources = [
-        # "sha256.cu",
+        "utils.cu",
+        "hash.cu",
         "main.cu",
     ]
 
