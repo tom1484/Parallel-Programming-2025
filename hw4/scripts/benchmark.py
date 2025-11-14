@@ -55,6 +55,12 @@ def parse_arguments():
         default="outputs",
         help="Directory to store output results.",
     )
+    parser.add_argument(
+        "--no_srun",
+        action="store_true",
+        required=False,
+        help="Do not use srun even for GPU execution.",
+    )
     return parser.parse_args()
 
 
