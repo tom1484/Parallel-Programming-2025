@@ -7,7 +7,7 @@
 typedef unsigned int WORD;
 typedef unsigned char BYTE;
 
-typedef union _sha256_ctx {
+__align__(64) typedef union _sha256_ctx {
     WORD h[8];
     BYTE b[32];
 } SHA256;
@@ -15,8 +15,12 @@ typedef union _sha256_ctx {
 //----------- FUNCTION DECLARATION --------
 namespace device {
 
+__device__ __forceinline__ WORD rotr(WORD x, int n);
 __device__ void sha256_transform(SHA256* ctx, const BYTE* msg);
+__device__ __forceinline__ void sha256_init(SHA256* ctx);
 __device__ void sha256(SHA256* ctx, const BYTE* msg, size_t len);
+__device__ void sha256_64(SHA256* ctx, const BYTE* msg, size_t len);
+__device__ void sha256_80(SHA256* ctx, const BYTE* msg, size_t len);
 
 }  // namespace device
 

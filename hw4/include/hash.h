@@ -1,6 +1,6 @@
 #include "sha256.h"
 
-typedef struct {
+__align__(64) typedef struct {
     unsigned int version;
     unsigned char prevhash[32];
     unsigned char merkle_root[32];
