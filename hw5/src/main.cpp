@@ -113,23 +113,15 @@ int main(int argc, char** argv) {
     DeviceArrays dev1;
     allocate_device_arrays(dev1, n);
 
+    // Allocate device memory for results (large enough for various result types)
+    void* d_result;
+    CHECK(hipMalloc(&d_result, 2 * sizeof(double)));  // Enough for 2 doubles or 4 ints
+
     // Copy initial state to GPU
     copy_host_to_device(dev1, n, qx, qy, qz, vx, vy, vz, m, type_int);
 
-    // Simulation loop (GPU)
-    for (int step = 0; step <= param::n_steps; step++) {
-        if (step > 0) {
-            run_step_gpu(step, n, dev1,
-                         /*ignore_devices=*/true,
-                         /*disabled_device=*/-1);
-        }
-
-        // Copy positions back to host
-        copy_device_to_host(dev1, n, qx, qy, qz, vx, vy, vz);
-
-        double dist = distance_host(planet, asteroid, qx, qy, qz);
-        if (dist < min_dist) min_dist = dist;
-    }
+    // Run entire simulation on GPU in a single kernel launch
+    min_dist = run_simulation_problem1(param::n_steps, n, planet, asteroid, dev1, (double*)d_result);
 
     // ---------------------
     // Problem 2 (GPU version)
@@ -150,23 +142,9 @@ int main(int argc, char** argv) {
     // Copy initial state to GPU
     copy_host_to_device(dev2, n, qx, qy, qz, vx, vy, vz, m, type_int);
 
-    for (int step = 0; step <= param::n_steps; step++) {
-        if (step > 0) {
-            run_step_gpu(step, n, dev2,
-                         /*ignore_devices=*/false,
-                         /*disabled_device=*/-1);
-        }
-
-        // Retrieve updated planet & asteroid positions
-        copy_device_to_host(dev2, n, qx, qy, qz, vx, vy, vz);
-
-        double dist = distance_host(planet, asteroid, qx, qy, qz);
-
-        if (dist < param::planet_radius) {
-            hit_time_step = step;
-            break;
-        }
-    }
+    // Run entire simulation on GPU in a single kernel launch
+    hit_time_step = run_simulation_problem2(param::n_steps, n, planet, asteroid,
+                                            param::planet_radius, dev2, (int*)d_result);
 
     // ---------------------
     // Problem 3 (GPU version, simple full-copy)
@@ -206,46 +184,16 @@ int main(int argc, char** argv) {
             // Copy this fresh state to GPU
             copy_host_to_device(dev3, n, qx, qy, qz, vx, vy, vz, m, type_int);
 
-            int missile_hit_step = -1;
-            bool saved = true;
-
-            for (int step = 0; step <= param::n_steps; ++step) {
-                if (step > 0) {
-                    // If missile already hit, disable this device's mass via disabled_device
-                    int disabled = (missile_hit_step >= 0 ? device_id : -1);
-
-                    run_step_gpu(step, n, dev3,
-                                 /*ignore_devices=*/false,
-                                 /*disabled_device=*/disabled);
-                }
-
-                // Get full state back to CPU (simple version)
-                copy_device_to_host(dev3, n, qx, qy, qz, vx, vy, vz);
-
-                // Check planet–asteroid collision
-                double dist_pa = distance_host(planet, asteroid, qx, qy, qz);
-                if (dist_pa < param::planet_radius) {
-                    saved = false;
-                    break;  // this device cannot save the planet
-                }
-
-                // Missile–device logic (only until it hits once)
-                if (missile_hit_step < 0) {
-                    double missile_dist = step * param::dt * param::missile_speed;
-                    double dist_pd = distance_host(planet, device_id, qx, qy, qz);
-
-                    if (missile_dist > dist_pd) {
-                        // missile hits this device at this step
-                        missile_hit_step = step;
-                        // from next step onward, we pass disabled_device = device_id
-                        // to run_step_gpu so its mass is treated as zero
-                    }
-                }
-            }
+            // Run entire simulation on GPU in a single kernel launch
+            Problem3Result result = run_simulation_problem3(
+                param::n_steps, n, planet, asteroid, device_id,
+                param::planet_radius, param::missile_speed, param::dt,
+                dev3, (int*)d_result
+            );
 
             // If the planet is safe and the missile actually hit the device, compute cost
-            if (saved && missile_hit_step >= 0) {
-                double t_hit = missile_hit_step * param::dt;
+            if (result.saved && result.missile_hit_step >= 0) {
+                double t_hit = result.missile_hit_step * param::dt;
                 double cost = param::get_missile_cost(t_hit);
                 if (cost < best_cost) {
                     best_cost = cost;

@@ -21,10 +21,10 @@ extern const hip::dim3 blockIdx, threadIdx, blockDim, gridDim;
 #define hipLaunchKernelGGL(kernelName, gridDim, blockDim, dynamicShared, stream, ...) /* no-op; for IntelliSense only \
                                                                                        */
 
-// Optionally: if you use CUDA-style <<< >>> syntax in your code,
-// you can define a no-op that will help IntelliSense parse it.
-// But depending on your build setup, omitting this may be safer:
-// #define kernelName<<<...>>>(...)   /* no-op */
+#define __longlong_as_double(x) (static_cast<double>(x))
+#define __double_as_longlong(x) (static_cast<unsigned long long>(x))
+
+#define atomicCAS(address, compare, val) (*(address) == (compare) ? (*(address) = (val), (compare)) : *(address))
 
 // If you want, define CUDA-style keywords to something harmless
 #define __global__
@@ -32,6 +32,7 @@ extern const hip::dim3 blockIdx, threadIdx, blockDim, gridDim;
 #define __shared__
 #define __constant__
 #define __host__
+#define __syncthreads()
 
 #endif
 
@@ -61,12 +62,23 @@ struct DeviceArrays {
     int* type;
 };
 
-__device__ double gravity_device_mass_dev(double m0, double t);
+// Problem 3 result structure
+struct Problem3Result {
+    bool saved;           // true if planet survived
+    int missile_hit_step; // step when missile hit device (-1 if never)
+    int collision_step;   // step when asteroid hit planet (-1 if never)
+};
 
-__global__ void nbody_step_kernel(int n, int step, double* qx, double* qy, double* qz, double* vx, double* vy,
-                                  double* vz, const double* m, const int* type, bool ignore_devices,
-                                  int disabled_device);
+// Mega-kernel functions - run entire simulation in a single kernel launch
+double run_simulation_problem1(int n_steps, int n, int planet, int asteroid,
+                               DeviceArrays& dev, double* d_result);
 
-void run_step_gpu(int step, int n, DeviceArrays& dev, bool ignore_devices, int disabled_device);
+int run_simulation_problem2(int n_steps, int n, int planet, int asteroid,
+                            double planet_radius, DeviceArrays& dev, int* d_result);
+
+Problem3Result run_simulation_problem3(int n_steps, int n, int planet, int asteroid,
+                                       int device_id, double planet_radius,
+                                       double missile_speed, double dt,
+                                       DeviceArrays& dev, int* d_result);
 
 #endif  // KERNEL_HPP
