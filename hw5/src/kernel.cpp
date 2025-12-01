@@ -89,5 +89,5 @@ void run_step_gpu(
         disabled_device
     );
 
-    hipDeviceSynchronize();  // required for correctness right now
+    CHECK(hipDeviceSynchronize());  // required for correctness right now
 }

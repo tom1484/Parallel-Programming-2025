@@ -25,45 +25,52 @@ const double missile_speed = 1e6;
 double get_missile_cost(double t) { return 1e5 + 1e3 * t; }
 }  // namespace param
 
+hipError_t _hip_error;
+
+void set_type_int(int n, const std::vector<std::string>& type, std::vector<int>& type_int) {
+    type_int.resize(n);
+    for (int i = 0; i < n; ++i) type_int[i] = (type[i] == "device" ? 1 : 0);
+}
+
 void allocate_device_arrays(DeviceArrays& dev, int n) {
-    hipMalloc(&dev.qx, n * sizeof(double));
-    hipMalloc(&dev.qy, n * sizeof(double));
-    hipMalloc(&dev.qz, n * sizeof(double));
+    CHECK(hipMalloc(&dev.qx, n * sizeof(double)));
+    CHECK(hipMalloc(&dev.qy, n * sizeof(double)));
+    CHECK(hipMalloc(&dev.qz, n * sizeof(double)));
 
-    hipMalloc(&dev.vx, n * sizeof(double));
-    hipMalloc(&dev.vy, n * sizeof(double));
-    hipMalloc(&dev.vz, n * sizeof(double));
+    CHECK(hipMalloc(&dev.vx, n * sizeof(double)));
+    CHECK(hipMalloc(&dev.vy, n * sizeof(double)));
+    CHECK(hipMalloc(&dev.vz, n * sizeof(double)));
 
-    hipMalloc(&dev.m, n * sizeof(double));
-    hipMalloc(&dev.type, n * sizeof(int));
+    CHECK(hipMalloc(&dev.m, n * sizeof(double)));
+    CHECK(hipMalloc(&dev.type, n * sizeof(int)));
 }
 
 void copy_host_to_device(DeviceArrays& dev, int n, const std::vector<double>& qx, const std::vector<double>& qy,
                          const std::vector<double>& qz, const std::vector<double>& vx, const std::vector<double>& vy,
                          const std::vector<double>& vz, const std::vector<double>& m,
                          const std::vector<int>& type_int) {
-    hipMemcpy(dev.qx, qx.data(), n * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(dev.qy, qy.data(), n * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(dev.qz, qz.data(), n * sizeof(double), hipMemcpyHostToDevice);
+    CHECK(hipMemcpy(dev.qx, qx.data(), n * sizeof(double), hipMemcpyHostToDevice));
+    CHECK(hipMemcpy(dev.qy, qy.data(), n * sizeof(double), hipMemcpyHostToDevice));
+    CHECK(hipMemcpy(dev.qz, qz.data(), n * sizeof(double), hipMemcpyHostToDevice));
 
-    hipMemcpy(dev.vx, vx.data(), n * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(dev.vy, vy.data(), n * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(dev.vz, vz.data(), n * sizeof(double), hipMemcpyHostToDevice);
+    CHECK(hipMemcpy(dev.vx, vx.data(), n * sizeof(double), hipMemcpyHostToDevice));
+    CHECK(hipMemcpy(dev.vy, vy.data(), n * sizeof(double), hipMemcpyHostToDevice));
+    CHECK(hipMemcpy(dev.vz, vz.data(), n * sizeof(double), hipMemcpyHostToDevice));
 
-    hipMemcpy(dev.m, m.data(), n * sizeof(double), hipMemcpyHostToDevice);
-    hipMemcpy(dev.type, type_int.data(), n * sizeof(int), hipMemcpyHostToDevice);
+    CHECK(hipMemcpy(dev.m, m.data(), n * sizeof(double), hipMemcpyHostToDevice));
+    CHECK(hipMemcpy(dev.type, type_int.data(), n * sizeof(int), hipMemcpyHostToDevice));
 }
 
 void copy_device_to_host(DeviceArrays& dev, int n, std::vector<double>& qx, std::vector<double>& qy,
                          std::vector<double>& qz, std::vector<double>& vx, std::vector<double>& vy,
                          std::vector<double>& vz) {
-    hipMemcpy(qx.data(), dev.qx, n * sizeof(double), hipMemcpyDeviceToHost);
-    hipMemcpy(qy.data(), dev.qy, n * sizeof(double), hipMemcpyDeviceToHost);
-    hipMemcpy(qz.data(), dev.qz, n * sizeof(double), hipMemcpyDeviceToHost);
+    CHECK(hipMemcpy(qx.data(), dev.qx, n * sizeof(double), hipMemcpyDeviceToHost));
+    CHECK(hipMemcpy(qy.data(), dev.qy, n * sizeof(double), hipMemcpyDeviceToHost));
+    CHECK(hipMemcpy(qz.data(), dev.qz, n * sizeof(double), hipMemcpyDeviceToHost));
 
-    hipMemcpy(vx.data(), dev.vx, n * sizeof(double), hipMemcpyDeviceToHost);
-    hipMemcpy(vy.data(), dev.vy, n * sizeof(double), hipMemcpyDeviceToHost);
-    hipMemcpy(vz.data(), dev.vz, n * sizeof(double), hipMemcpyDeviceToHost);
+    CHECK(hipMemcpy(vx.data(), dev.vx, n * sizeof(double), hipMemcpyDeviceToHost));
+    CHECK(hipMemcpy(vy.data(), dev.vy, n * sizeof(double), hipMemcpyDeviceToHost));
+    CHECK(hipMemcpy(vz.data(), dev.vz, n * sizeof(double), hipMemcpyDeviceToHost));
 }
 
 void run_step(int step, int n, std::vector<double>& qx, std::vector<double>& qy, std::vector<double>& qz,
@@ -121,6 +128,7 @@ int main(int argc, char** argv) {
     int n, planet, asteroid;
     std::vector<double> qx, qy, qz, vx, vy, vz, m;
     std::vector<std::string> type;
+    std::vector<int> type_int;  // add this
 
     auto distance = [&](int i, int j) -> double {
         double dx = qx[i] - qx[j];
@@ -136,10 +144,7 @@ int main(int argc, char** argv) {
 
     // Load input
     read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
-
-    // Convert type strings → integers
-    std::vector<int> type_int(n);
-    for (int i = 0; i < n; i++) type_int[i] = (type[i] == "device" ? 1 : 0);
+    set_type_int(n, type, type_int);
 
     // Allocate GPU arrays
     DeviceArrays dev1;
@@ -170,6 +175,7 @@ int main(int argc, char** argv) {
 
     // Reload input (fresh initial conditions)
     read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
+    set_type_int(n, type, type_int);
 
     // Reconvert type strings → integers
     for (int i = 0; i < n; i++) type_int[i] = (type[i] == "device" ? 1 : 0);
@@ -199,19 +205,19 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Problem 3
+    // ---------------------
+    // Problem 3 (GPU version, simple full-copy)
+    // ---------------------
     int gravity_device_id = -1;
     double missile_cost = -1.0;
 
-    // If there is no collision even with all devices, no need to launch a missile
+    // If there is no collision even with all devices (Problem 2),
+    // there's no need to launch a missile.
     if (hit_time_step >= 0) {
-        // We will search over all gravity devices and find the cheapest one
-        // whose destruction prevents the collision.
-        double best_cost = std::numeric_limits<double>::infinity();
-        int best_device = -1;
-
-        // First, reload the initial state so we have the original types
+        // First, read input again to identify all devices
         read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
+        type_int.resize(n);
+        for (int i = 0; i < n; ++i) type_int[i] = (type[i] == "device" ? 1 : 0);
 
         // Collect all gravity devices
         std::vector<int> devices;
@@ -221,40 +227,55 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Try destroying each device, one at a time
+        // Allocate GPU arrays for Problem 3 simulations
+        DeviceArrays dev3;
+        allocate_device_arrays(dev3, n);
+
+        double best_cost = std::numeric_limits<double>::infinity();
+        int best_device = -1;
+
+        // Try destroying each device one by one
         for (int device_id : devices) {
-            // Reset system state for this simulation
+            // Reset system state from original input
             read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
+            set_type_int(n, type, type_int);
+
+            // Copy this fresh state to GPU
+            copy_host_to_device(dev3, n, qx, qy, qz, vx, vy, vz, m, type_int);
 
             int missile_hit_step = -1;
             bool saved = true;
 
             for (int step = 0; step <= param::n_steps; ++step) {
-                // advance simulation
                 if (step > 0) {
-                    run_step(step, n, qx, qy, qz, vx, vy, vz, m, type);
+                    // If missile already hit, disable this device's mass via disabled_device
+                    int disabled = (missile_hit_step >= 0 ? device_id : -1);
+
+                    run_step_gpu(step, n, dev3,
+                                 /*ignore_devices=*/false,
+                                 /*disabled_device=*/disabled);
                 }
 
-                // check planet–asteroid collision
-                double dx = qx[planet] - qx[asteroid];
-                double dy = qy[planet] - qy[asteroid];
-                double dz = qz[planet] - qz[asteroid];
-                double dist2 = dx * dx + dy * dy + dz * dz;
-                if (dist2 < param::planet_radius * param::planet_radius) {
+                // Get full state back to CPU (simple version)
+                copy_device_to_host(dev3, n, qx, qy, qz, vx, vy, vz);
+
+                // Check planet–asteroid collision
+                double dist_pa = distance_host(planet, asteroid, qx, qy, qz);
+                if (dist_pa < param::planet_radius) {
                     saved = false;
-                    break;  // collision still happens; this device is not enough
+                    break;  // this device cannot save the planet
                 }
 
-                // missile–device interaction (only until it hits once)
+                // Missile–device logic (only until it hits once)
                 if (missile_hit_step < 0) {
                     double missile_dist = step * param::dt * param::missile_speed;
-                    double pd_dist = distance(planet, device_id);
+                    double dist_pd = distance_host(planet, device_id, qx, qy, qz);
 
-                    if (missile_dist > pd_dist) {
+                    if (missile_dist > dist_pd) {
                         // missile hits this device at this step
                         missile_hit_step = step;
-                        // after hit, the device's mass becomes zero permanently
-                        m[device_id] = 0.0;
+                        // from next step onward, we pass disabled_device = device_id
+                        // to run_step_gpu so its mass is treated as zero
                     }
                 }
             }

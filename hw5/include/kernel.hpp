@@ -37,6 +37,23 @@ extern const hip::dim3 blockIdx, threadIdx, blockDim, gridDim;
 
 #include <hip/hip_runtime.h>
 
+// Accept the output of expression (e.g., a HIP runtime call) and check for errors
+#ifdef SUBMIT
+#define CHECK(expr) (expr)
+#else
+
+#include <iostream>
+#define CHECK(expr)                                                                               \
+    do {                                                                                          \
+        hipError_t err = (expr);                                                                  \
+        if (err != hipSuccess) {                                                                  \
+            fprintf(stderr, "HIP error %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(err)); \
+            exit(EXIT_FAILURE);                                                                   \
+        }                                                                                         \
+    } while (0)
+
+#endif
+
 struct DeviceArrays {
     double *qx, *qy, *qz;
     double *vx, *vy, *vz;
