@@ -39,6 +39,10 @@ target_include_directories(hw5 PRIVATE "${CMAKE_SOURCE_DIR}/include")
 # Tell hipcc which GPU arch to target
 target_compile_options(hw5 PRIVATE --offload-arch=gfx908)
 
+# Enable OpenMP for multi-GPU parallelism
+find_package(OpenMP REQUIRED)
+target_link_libraries(hw5 PRIVATE OpenMP::OpenMP_CXX)
+
 # (Optional) extra HIP-related flags can go here, for example:
 # target_compile_options(hw5 PRIVATE -O3)
 

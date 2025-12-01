@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
                                             param::planet_radius, dev2, (int*)d_result);
 
     // ---------------------
-    // Problem 3 (GPU version, simple full-copy)
+    // Problem 3 (Multi-GPU optimized)
     // ---------------------
     int gravity_device_id = -1;
     double missile_cost = -1.0;
@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
     // If there is no collision even with all devices (Problem 2),
     // there's no need to launch a missile.
     if (hit_time_step >= 0) {
-        // First, read input again to identify all devices
+        // Read input once to get device list
         read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
         type_int.resize(n);
         for (int i = 0; i < n; ++i) type_int[i] = (type[i] == "device" ? 1 : 0);
@@ -168,43 +168,24 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Allocate GPU arrays for Problem 3 simulations
-        DeviceArrays dev3;
-        allocate_device_arrays(dev3, n);
+        // Use multi-GPU implementation
+        int best_device_idx = -1;
+        int best_hit_step = -1;
 
-        double best_cost = std::numeric_limits<double>::infinity();
-        int best_device = -1;
+        run_problem3_multi_gpu(
+            param::n_steps, n, planet, asteroid,
+            devices.data(), (int)devices.size(),
+            param::planet_radius, param::missile_speed, param::dt,
+            qx.data(), qy.data(), qz.data(),
+            vx.data(), vy.data(), vz.data(),
+            m.data(), type_int.data(),
+            &best_device_idx, &best_hit_step
+        );
 
-        // Try destroying each device one by one
-        for (int device_id : devices) {
-            // Reset system state from original input
-            read_input(argv[1], n, planet, asteroid, qx, qy, qz, vx, vy, vz, m, type);
-            set_type_int(n, type, type_int);
-
-            // Copy this fresh state to GPU
-            copy_host_to_device(dev3, n, qx, qy, qz, vx, vy, vz, m, type_int);
-
-            // Run entire simulation on GPU in a single kernel launch
-            Problem3Result result = run_simulation_problem3(
-                param::n_steps, n, planet, asteroid, device_id,
-                param::planet_radius, param::missile_speed, param::dt,
-                dev3, (int*)d_result
-            );
-
-            // If the planet is safe and the missile actually hit the device, compute cost
-            if (result.saved && result.missile_hit_step >= 0) {
-                double t_hit = result.missile_hit_step * param::dt;
-                double cost = param::get_missile_cost(t_hit);
-                if (cost < best_cost) {
-                    best_cost = cost;
-                    best_device = device_id;
-                }
-            }
-        }
-
-        if (best_device != -1) {
-            gravity_device_id = best_device;
-            missile_cost = best_cost;
+        if (best_device_idx >= 0 && best_hit_step >= 0) {
+            gravity_device_id = devices[best_device_idx];
+            double t_hit = best_hit_step * param::dt;
+            missile_cost = param::get_missile_cost(t_hit);
         }
     }
 

@@ -76,9 +76,25 @@ double run_simulation_problem1(int n_steps, int n, int planet, int asteroid,
 int run_simulation_problem2(int n_steps, int n, int planet, int asteroid,
                             double planet_radius, DeviceArrays& dev, int* d_result);
 
-Problem3Result run_simulation_problem3(int n_steps, int n, int planet, int asteroid,
-                                       int device_id, double planet_radius,
-                                       double missile_speed, double dt,
-                                       DeviceArrays& dev, int* d_result);
+// Allocate device arrays on current GPU
+void allocate_device_arrays_gpu(DeviceArrays& dev, int n);
+
+// Free device arrays
+void free_device_arrays(DeviceArrays& dev);
+
+// Copy host data to device arrays
+void copy_host_to_device_arrays(DeviceArrays& dev, int n,
+                                const double* qx, const double* qy, const double* qz,
+                                const double* vx, const double* vy, const double* vz,
+                                const double* m, const int* type);
+
+// Multi-GPU Problem 3: Split work across multiple GPUs with HIP streams
+void run_problem3_multi_gpu(int n_steps, int n, int planet, int asteroid,
+                            const int* device_ids, int num_devices,
+                            double planet_radius, double missile_speed, double dt,
+                            const double* h_qx, const double* h_qy, const double* h_qz,
+                            const double* h_vx, const double* h_vy, const double* h_vz,
+                            const double* h_m, const int* h_type,
+                            int* out_best_device_idx, int* out_best_hit_step);
 
 #endif  // KERNEL_HPP

@@ -1,8 +1,13 @@
-# N-Body Simulator - GPU Acceleration Implementation
+# N-Body Simulator - GPU Acceleration
 
-## Overview
+## Quick Summary
 
-This document explains the GPU acceleration strategy used in the n-body simulator. The implementation evolved through several optimization stages, culminating in a **mega-kernel** approach that runs entire simulations in a single GPU kernel launch.
+This n-body simulator uses **HIP/ROCm** to accelerate gravitational simulation on AMD GPUs. The key optimizations are:
+
+1. **Mega-kernels**: Entire 200k-step simulation runs in a single GPU kernel launch (no CPU sync per step)
+2. **Shared memory**: Body positions/masses cached in fast on-chip memory
+3. **Multi-GPU**: Problem 3 splits device testing across 2 GPUs using OpenMP threads
+4. **HIP streams**: 4 concurrent streams per GPU overlap multiple simulations
 
 ## Problem Description
 
@@ -12,166 +17,114 @@ The simulator solves three related problems:
 2. **Problem 2**: Detect if/when asteroid collides with planet (with gravity devices active)
 3. **Problem 3**: Find the cheapest gravity device to destroy with a missile to prevent collision
 
-## Optimization Journey
-
-### Stage 1: Naive Implementation (Baseline)
-```
-CPU                          GPU
- |                            |
- |--launch step kernel------->|
- |<--copy ALL positions------|   ← 6n × 8 bytes per step!
- |  compute distance on CPU   |
- |  (repeat 200k times)       |
-```
-**Problem**: Copying all body positions back to CPU every step is extremely slow.
-
-### Stage 2: GPU Distance Computation
-```
-CPU                          GPU
- |                            |
- |--launch step kernel------->|
- |--launch distance kernel--->|
- |<--copy 8 bytes------------|   ← Only 1 double!
- |  (repeat 200k times)       |
-```
-**Improvement**: ~6000x less data transfer per step.
-
-### Stage 3: Batched Simulation
-```
-CPU                          GPU
- |                            |
- |--launch step kernel------->|
- |--launch check kernel------>|
- |  (repeat internally)       |
- |<--copy result (periodic)---|   ← Check every 1000 steps
-```
-**Improvement**: Reduced CPU-GPU round trips by 1000x.
-
-### Stage 4: Mega-Kernel (Current Implementation)
-```
-CPU                          GPU
- |                            |
- |--launch mega-kernel------->|   ← 1 launch for entire simulation!
- |                            |   [runs 200k steps internally]
- |<--copy final result-------|   ← 1 copy at the end
-```
-**Improvement**: Eliminates ALL intermediate synchronization.
-
-## Current Architecture
-
-### Mega-Kernel Design
-
-Each problem has its own mega-kernel that runs the entire simulation:
-
-```cpp
-__global__ void simulate_problem1_kernel(...) {
-    __shared__ double s_min_dist;  // Shared state
-    
-    for (int step = 0; step <= n_steps; step++) {
-        // 1. Each thread updates one body
-        if (i < n) {
-            // Compute acceleration, update velocity & position
-        }
-        __syncthreads();  // Barrier: all bodies updated
-        
-        // 2. Thread 0 checks condition
-        if (i == 0) {
-            // Update min_dist or check collision
-        }
-        __syncthreads();  // Barrier: condition checked
-    }
-    
-    // Write final result
-    if (i == 0) *result = s_min_dist;
-}
-```
-
-### Key Features
-
-| Feature | Implementation |
-|---------|---------------|
-| **Synchronization** | `__syncthreads()` between physics update and condition check |
-| **Shared State** | `__shared__` variables for min_dist, collision_step, missile_hit |
-| **Early Exit** | Problems 2 & 3 break loop when collision detected |
-| **Single Block** | All threads in one block (max 1024 bodies) |
-
-### File Structure
+## Code Structure
 
 ```
 src/
-├── kernel.cpp      # GPU kernels (mega-kernels for all 3 problems)
-├── main.cpp        # Host code, memory management, problem orchestration
+├── kernel.cpp      # GPU kernels and multi-GPU orchestration
+├── main.cpp        # Host code, memory setup, problem dispatch
 └── utils.cpp       # File I/O
 
 include/
 └── kernel.hpp      # Kernel declarations, DeviceArrays struct
 ```
 
+### Key Functions in `kernel.cpp`
+
+| Function | Purpose |
+|----------|---------|
+| `simulate_problem1_kernel` | Mega-kernel: find min distance (ignores devices) |
+| `simulate_problem2_kernel` | Mega-kernel: detect collision step (with devices) |
+| `simulate_problem3_kernel` | Mega-kernel: test one device with missile logic |
+| `run_problem3_multi_gpu` | Orchestrates 2 GPUs × 4 streams for Problem 3 |
+
+### Data Flow
+
+```
+Problem 1 & 2:
+  Host → GPU (once) → Mega-kernel (200k steps) → Result → Host
+
+Problem 3:
+  Host ──┬──→ GPU0 (streams 0-3) ──┬──→ Merge results
+         └──→ GPU1 (streams 0-3) ──┘
+```
+
+## Optimization Journey
+
+### Stage 1: Naive (Baseline)
+```
+CPU                          GPU
+ |--launch step kernel------->|
+ |<--copy ALL positions------|   ← 6n × 8 bytes per step!
+ |  compute distance on CPU   |
+ |  (repeat 200k times)       |
+```
+
+### Stage 2: Mega-Kernel
+```
+CPU                          GPU
+ |--launch mega-kernel------->|   ← 1 launch for entire simulation!
+ |                            |   [runs 200k steps internally]
+ |<--copy final result-------|   ← 1 copy at the end
+```
+
+### Stage 3: Multi-GPU + Streams
+```
+CPU ──┬──→ GPU0 (4 streams) ──┬──→ Merge
+      └──→ GPU1 (4 streams) ──┘
+```
+
+## Key Design Features
+
+| Feature | Implementation |
+|---------|---------------|
+| **Shared Memory** | Body data (qx, qy, qz, m, type) loaded into `__shared__` arrays |
+| **Synchronization** | `__syncthreads()` between physics update and condition check |
+| **Early Exit** | Problems 2 & 3 break loop when collision detected |
+| **Multi-GPU** | OpenMP threads, each controlling one GPU |
+| **HIP Streams** | 4 streams per GPU for concurrent device simulations |
+
 ## Performance Results
 
-Tested on testcase b20:
-
-| Implementation | Time | Speedup |
-|----------------|------|---------|
-| Naive (copy every step) | 30.3s | 1.0x |
-| Batched (periodic checks) | 10.9s | 2.8x |
-| **Mega-kernel** | **7.1s** | **4.3x** |
+| Testcase | Optimization | Time | Speedup |
+|----------|--------------|------|---------|
+| b20 | Baseline | 30.3s | 1.0x |
+| b20 | Final (all opts) | **5.6s** | **5.4x** |
+| b80 | Baseline | ~120s | 1.0x |
+| b80 | Final (all opts) | **21.1s** | **5.7x** |
 
 ## Limitations
 
-1. **Single Block Constraint**: Current implementation limited to n ≤ 1024 bodies (max threads per block)
-2. **No Shared Memory Tiling**: Inner loop still has O(n²) global memory accesses
-3. **Problem 3 Overhead**: Each device requires a full simulation re-run
-
-## Future Optimizations
-
-1. **Cooperative Groups**: Use `hipLaunchCooperativeKernel` for grid-wide sync (n > 1024)
-2. **Shared Memory Tiling**: Load body positions into shared memory in tiles
-3. **Problem 3 Parallelization**: Run multiple device simulations concurrently
-4. **State Checkpointing**: Cache simulation states to avoid full re-runs
+1. **Single Block Constraint**: Limited to n ≤ 1024 bodies (max threads per block)
+2. **Problem 3 Re-runs**: Each device requires a full simulation (no state caching)
 
 ## API Reference
 
 ### Problem 1: Minimum Distance
 ```cpp
 double run_simulation_problem1(
-    int n_steps,        // Number of simulation steps
-    int n,              // Number of bodies
-    int planet,         // Planet body index
-    int asteroid,       // Asteroid body index
-    DeviceArrays& dev,  // GPU arrays
-    double* d_result    // Device pointer for result
+    int n_steps, int n, int planet, int asteroid,
+    DeviceArrays& dev, double* d_result
 );
-// Returns: Minimum distance between planet and asteroid
 ```
 
 ### Problem 2: Collision Detection
 ```cpp
 int run_simulation_problem2(
-    int n_steps,
-    int n,
-    int planet,
-    int asteroid,
-    double planet_radius,  // Collision threshold
-    DeviceArrays& dev,
-    int* d_result
+    int n_steps, int n, int planet, int asteroid,
+    double planet_radius, DeviceArrays& dev, int* d_result
 );
-// Returns: Step of collision, or -2 if no collision
 ```
 
-### Problem 3: Missile Defense
+### Problem 3: Multi-GPU Missile Defense
 ```cpp
-Problem3Result run_simulation_problem3(
-    int n_steps,
-    int n,
-    int planet,
-    int asteroid,
-    int device_id,         // Device to destroy
-    double planet_radius,
-    double missile_speed,
-    double dt,
-    DeviceArrays& dev,
-    int* d_result
+void run_problem3_multi_gpu(
+    int n_steps, int n, int planet, int asteroid,
+    const int* device_ids, int num_devices,
+    double planet_radius, double missile_speed, double dt,
+    const double* h_qx, const double* h_qy, const double* h_qz,
+    const double* h_vx, const double* h_vy, const double* h_vz,
+    const double* h_m, const int* h_type,
+    int* out_best_device_idx, int* out_best_hit_step
 );
-// Returns: Problem3Result { saved, missile_hit_step, collision_step }
 ```
