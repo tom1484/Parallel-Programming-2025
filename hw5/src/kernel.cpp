@@ -67,3 +67,27 @@ __global__ void nbody_step_kernel(int n, int step, double* qx, double* qy, doubl
     vy[i] = vyi;
     vz[i] = vzi;
 }
+
+void run_step_gpu(
+    int step,
+    int n,
+    DeviceArrays &dev,
+    bool ignore_devices,
+    int disabled_device
+) {
+    const int blockSize = 256;
+    const int gridSize  = (n + blockSize - 1) / blockSize;
+
+    hipLaunchKernelGGL(
+        nbody_step_kernel,
+        dim3(gridSize), dim3(blockSize), 0, 0,
+        n, step,
+        dev.qx, dev.qy, dev.qz,
+        dev.vx, dev.vy, dev.vz,
+        dev.m, dev.type,
+        ignore_devices,
+        disabled_device
+    );
+
+    hipDeviceSynchronize();  // required for correctness right now
+}

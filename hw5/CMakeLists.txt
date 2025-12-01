@@ -26,8 +26,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # hw5: built with hipcc
 # --------------------------------------------------------------------
 set(SRC
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils.cpp"
     "${CMAKE_SOURCE_DIR}/src/kernel.cpp"
+    "${CMAKE_SOURCE_DIR}/src/main.cpp"
 )
 
 add_executable(hw5 ${SRC})
