@@ -73,43 +73,6 @@ void copy_device_to_host(DeviceArrays& dev, int n, std::vector<double>& qx, std:
     CHECK(hipMemcpy(vz.data(), dev.vz, n * sizeof(double), hipMemcpyDeviceToHost));
 }
 
-void run_step(int step, int n, std::vector<double>& qx, std::vector<double>& qy, std::vector<double>& qz,
-              std::vector<double>& vx, std::vector<double>& vy, std::vector<double>& vz, const std::vector<double>& m,
-              const std::vector<std::string>& type) {
-    // compute accelerations
-    std::vector<double> ax(n), ay(n), az(n);
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            if (j == i) continue;
-            double mj = m[j];
-            if (type[j] == "device") {
-                mj = param::gravity_device_mass(mj, step * param::dt);
-            }
-            double dx = qx[j] - qx[i];
-            double dy = qy[j] - qy[i];
-            double dz = qz[j] - qz[i];
-            double dist3 = pow(dx * dx + dy * dy + dz * dz + param::eps * param::eps, 1.5);
-            ax[i] += param::G * mj * dx / dist3;
-            ay[i] += param::G * mj * dy / dist3;
-            az[i] += param::G * mj * dz / dist3;
-        }
-    }
-
-    // update velocities
-    for (int i = 0; i < n; i++) {
-        vx[i] += ax[i] * param::dt;
-        vy[i] += ay[i] * param::dt;
-        vz[i] += az[i] * param::dt;
-    }
-
-    // update positions
-    for (int i = 0; i < n; i++) {
-        qx[i] += vx[i] * param::dt;
-        qy[i] += vy[i] * param::dt;
-        qz[i] += vz[i] * param::dt;
-    }
-}
-
 double distance_host(int i, int j, const std::vector<double>& qx, const std::vector<double>& qy,
                      const std::vector<double>& qz) {
     double dx = qx[i] - qx[j];
