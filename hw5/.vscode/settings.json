@@ -9,6 +9,7 @@
         "algorithm": "cpp",
         "string": "cpp",
         "cstring": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "ostream": "cpp"
     }
 }

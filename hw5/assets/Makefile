@@ -8,7 +8,7 @@ all: $(TARGET)
 
 .PHONY: hw5
 hw5: hw5.cpp
-	hipcc $(HIPFLAGS) -o hw5 hw5.cpp
+	hipcc $(HIPFLAGS) -DSUBMIT -o hw5 hw5.cpp
 
 .PHONY: clean
 clean:
