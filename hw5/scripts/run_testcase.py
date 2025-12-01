@@ -78,7 +78,7 @@ def run_testcase(
     output_dir = getattr(args, "output_dir", "outputs")
     save_log = getattr(args, "save_log", False)
     dry_run = getattr(args, "dry_run", False)
-    no_srun = getattr(args, "no_srun", False)
+    no_srun = getattr(args, "no_srun", False) or sample
 
     result = {
         "input_path": None,
