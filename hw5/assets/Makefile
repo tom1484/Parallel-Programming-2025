@@ -1,5 +1,5 @@
 CXX := g++
-HIPFLAGS := $(CXXFLAGS) --offload-arch=gfx908
+HIPFLAGS := $(CXXFLAGS) --offload-arch=gfx908 -fopenmp
 TARGET := hw5
 
 

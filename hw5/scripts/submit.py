@@ -99,9 +99,13 @@ def merge_files():
     """Merge all header and source files into a single C++ file."""
     # Define file order based on dependencies
     headers = [
+        "utils.hpp",
+        "kernel.hpp",
     ]
 
     sources = [
+        "utils.cpp",
+        "kernel.cpp",
         "main.cpp",
     ]
 
