@@ -27,14 +27,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # --------------------------------------------------------------------
 set(SRC
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/kernel.cpp"
 )
 
 add_executable(hw5 ${SRC})
 
 # Include directory equivalent to -Iinclude
 target_include_directories(hw5 PRIVATE "${CMAKE_SOURCE_DIR}/include")
-# Add HIP include directories manually (for LSP + hipcc builds)
-target_include_directories(hw5 PRIVATE /opt/rocm/include)
 
 # Tell hipcc which GPU arch to target
 target_compile_options(hw5 PRIVATE --offload-arch=gfx908)

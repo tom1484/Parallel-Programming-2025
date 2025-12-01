@@ -2,7 +2,17 @@
     "configurations": [
         {
             "name": "Linux",
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+            "includePath": [
+                "${workspaceFolder}/include",
+                "/opt/rocm/include/**"
+            ],
+            "defines": [
+                "__HIP_PLATFORM_AMD__"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++20",
+            "intelliSenseMode": "linux-gcc-x64"
         }
     ],
     "version": 4
